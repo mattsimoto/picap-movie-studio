@@ -17,6 +17,7 @@ class PiCapStageOne(QWidget):
         super().__init__()
         self.setWindowTitle("PiCap Movie Studio")
         self.setStyleSheet("background: #161922; color: white;")
+        self.pending_filename = None
 
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
@@ -24,10 +25,10 @@ class PiCapStageOne(QWidget):
         )
         self.picam2.configure(config)
 
-        # Use the software Qt preview rather than the OpenGL preview.
-        # This is more compatible with the Pi 3B+ / 7-inch touchscreen stack.
+        # Software Qt preview is more compatible with the Pi 3B+ touchscreen.
         self.preview = QPicamera2(self.picam2, width=720, height=300, keep_ar=True)
         self.preview.setMinimumHeight(240)
+        self.preview.done_signal.connect(self.capture_done)
 
         self.status = QLabel("Ready")
         self.status.setAlignment(Qt.AlignCenter)
@@ -42,6 +43,7 @@ class PiCapStageOne(QWidget):
             "font-size: 24px; font-weight: 800; padding: 8px;"
             "}"
             "QPushButton:pressed { background: #d99d2f; }"
+            "QPushButton:disabled { background: #8a7a58; color: #ddd; }"
         )
         self.capture_button.clicked.connect(self.capture_photo)
 
@@ -73,20 +75,38 @@ class PiCapStageOne(QWidget):
         self.showFullScreen()
 
     def capture_photo(self):
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        filename = PHOTO_DIR / f"picap-{timestamp}.jpg"
+        """Start a non-blocking capture so the touchscreen UI stays responsive."""
+        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")[:-3]
+        self.pending_filename = PHOTO_DIR / f"picap-{timestamp}.jpg"
 
         self.capture_button.setEnabled(False)
         self.status.setText("Taking picture...")
 
         try:
-            self.picam2.capture_file(str(filename))
-            self.status.setText(f"Saved {filename.name}")
+            self.picam2.capture_file(
+                str(self.pending_filename),
+                wait=False,
+                signal_function=self.preview.signal_done,
+            )
+        except Exception as exc:
+            self.pending_filename = None
+            self.capture_button.setEnabled(True)
+            self.status.setText(f"Camera error: {exc}")
+
+    def capture_done(self, job):
+        """Finish an asynchronous Picamera2 job without blocking the Qt event loop."""
+        try:
+            self.picam2.wait(job)
+            if self.pending_filename is not None:
+                self.status.setText(f"Saved {self.pending_filename.name}")
+            else:
+                self.status.setText("Picture saved")
         except Exception as exc:
             self.status.setText(f"Camera error: {exc}")
         finally:
+            self.pending_filename = None
             self.capture_button.setEnabled(True)
-            QTimer.singleShot(2200, lambda: self.status.setText("Ready"))
+            QTimer.singleShot(1800, lambda: self.status.setText("Ready"))
 
     def closeEvent(self, event):
         try:
