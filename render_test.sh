@@ -3,7 +3,7 @@ set -u
 
 PROJECT_DIR="$HOME/PiCapMovies/stage2-test"
 FRAMES_DIR="$PROJECT_DIR/frames"
-MOVIE_PATH="$PROJECT_DIR/movie.mp4"
+MOVIE_PATH="$PROJECT_DIR/movie.avi"
 LOG_PATH="$PROJECT_DIR/render.log"
 FPS="${1:-10}"
 
@@ -22,12 +22,12 @@ fi
 
 echo "Rendering $COUNT frames at $FPS FPS..."
 echo "FFmpeg: $(command -v ffmpeg)"
-echo "Mode: 720p MPEG-4 fast render"
+echo "Mode: MJPEG passthrough AVI (no re-encoding)"
 echo "Writing diagnostics to: $LOG_PATH"
 rm -f "$LOG_PATH" "$MOVIE_PATH"
 
 set +e
-timeout 30 ffmpeg \
+timeout 15 ffmpeg \
   -y \
   -hide_banner \
   -loglevel info \
@@ -35,11 +35,7 @@ timeout 30 ffmpeg \
   -start_number 1 \
   -i 'frame%04d.jpg' \
   -frames:v "$COUNT" \
-  -vf 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2' \
-  -c:v mpeg4 \
-  -q:v 5 \
-  -pix_fmt yuv420p \
-  -movflags +faststart \
+  -c:v copy \
   "$MOVIE_PATH" >"$LOG_PATH" 2>&1
 RC=$?
 set -e
