@@ -10,7 +10,6 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QPushButton,
-    QSlider,
     QStackedLayout,
     QVBoxLayout,
     QWidget,
@@ -24,6 +23,7 @@ FRAMES_DIR = PROJECT_DIR / "frames"
 FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 FRAME_PATTERN = re.compile(r"^frame(\d{4})\.jpg$")
 FPS_OPTIONS = [6, 10, 15]
+ONION_LEVELS = [("LOW", 0.22), ("MED", 0.38), ("HIGH", 0.55)]
 
 
 class PiCapStageThree(QWidget):
@@ -37,9 +37,10 @@ class PiCapStageThree(QWidget):
         self.frame_count = self.find_last_frame_number()
         self.shutting_down = False
         self.onion_enabled = False
+        self.onion_level_index = 1
         self.playing = False
         self.playback_index = 0
-        self.fps_index = 1  # default 10 FPS
+        self.fps_index = 1
 
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
@@ -47,22 +48,19 @@ class PiCapStageThree(QWidget):
         )
         self.picam2.configure(config)
 
-        # Live camera widget.
-        self.preview = QPicamera2(self.picam2, width=720, height=285, keep_ar=True)
-        self.preview.setMinimumHeight(215)
+        self.preview = QPicamera2(self.picam2, width=720, height=245, keep_ar=True)
+        self.preview.setMinimumHeight(195)
         self.preview.done_signal.connect(self.capture_done)
 
-        # Transparent previous-frame overlay for onion skinning.
         self.onion_overlay = QLabel()
         self.onion_overlay.setAlignment(Qt.AlignCenter)
         self.onion_overlay.setAttribute(Qt.WA_TransparentForMouseEvents, True)
         self.onion_overlay.setStyleSheet("background: transparent;")
         self.onion_effect = QGraphicsOpacityEffect(self.onion_overlay)
-        self.onion_effect.setOpacity(0.35)
+        self.onion_effect.setOpacity(ONION_LEVELS[self.onion_level_index][1])
         self.onion_overlay.setGraphicsEffect(self.onion_effect)
         self.onion_overlay.hide()
 
-        # Playback image sits over the camera only while PLAY is active.
         self.playback_view = QLabel()
         self.playback_view.setAlignment(Qt.AlignCenter)
         self.playback_view.setStyleSheet("background: black;")
@@ -78,66 +76,74 @@ class PiCapStageThree(QWidget):
 
         self.frame_label = QLabel()
         self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedHeight(28)
+        self.frame_label.setFixedHeight(27)
         self.frame_label.setStyleSheet("font-size: 20px; font-weight: 800;")
         self.update_frame_label()
 
         self.status = QLabel("Ready")
         self.status.setAlignment(Qt.AlignCenter)
-        self.status.setFixedHeight(20)
+        self.status.setFixedHeight(19)
         self.status.setStyleSheet("font-size: 13px; font-weight: 600; color: #d8dbe5;")
 
-        # Onion skin controls.
+        tool_style = (
+            "QPushButton { background: #343947; color: white; border: 2px solid #596174; "
+            "border-radius: 10px; font-size: 15px; font-weight: 800; padding: 4px; }"
+            "QPushButton:pressed { background: #596174; }"
+            "QPushButton:disabled { background: #252832; color: #777; border-color: #333744; }"
+        )
+
         self.onion_button = QPushButton("ONION OFF")
-        self.onion_button.setFixedHeight(40)
+        self.onion_button.setFixedHeight(48)
+        self.onion_button.setStyleSheet(tool_style)
         self.onion_button.clicked.connect(self.toggle_onion)
 
-        self.onion_slider = QSlider(Qt.Horizontal)
-        self.onion_slider.setRange(10, 70)
-        self.onion_slider.setValue(35)
-        self.onion_slider.setFixedWidth(125)
-        self.onion_slider.valueChanged.connect(self.change_onion_strength)
+        self.strength_button = QPushButton("GHOST MED")
+        self.strength_button.setFixedHeight(48)
+        self.strength_button.setStyleSheet(tool_style)
+        self.strength_button.clicked.connect(self.cycle_onion_strength)
 
         self.fps_button = QPushButton("10 FPS")
-        self.fps_button.setFixedHeight(40)
+        self.fps_button.setFixedHeight(48)
+        self.fps_button.setStyleSheet(tool_style)
         self.fps_button.clicked.connect(self.cycle_fps)
 
         self.play_button = QPushButton("PLAY")
-        self.play_button.setFixedHeight(40)
+        self.play_button.setFixedHeight(48)
+        self.play_button.setStyleSheet(tool_style)
         self.play_button.clicked.connect(self.toggle_playback)
 
         tools_row = QHBoxLayout()
-        tools_row.setSpacing(6)
-        tools_row.addWidget(self.onion_button, 2)
-        tools_row.addWidget(self.onion_slider, 2)
+        tools_row.setSpacing(5)
+        tools_row.addWidget(self.onion_button, 1)
+        tools_row.addWidget(self.strength_button, 1)
         tools_row.addWidget(self.fps_button, 1)
         tools_row.addWidget(self.play_button, 1)
 
         self.capture_button = QPushButton("TAKE PICTURE")
-        self.capture_button.setFixedHeight(54)
+        self.capture_button.setFixedHeight(62)
         self.capture_button.setStyleSheet(
             "QPushButton { background: #f2b84b; color: #111; border: none; border-radius: 12px;"
-            "font-size: 21px; font-weight: 800; padding: 5px; }"
+            "font-size: 22px; font-weight: 800; padding: 5px; }"
             "QPushButton:pressed { background: #d99d2f; }"
             "QPushButton:disabled { background: #8a7a58; color: #ddd; }"
         )
         self.capture_button.clicked.connect(self.capture_photo)
 
         self.oops_button = QPushButton("OOPS")
-        self.oops_button.setFixedHeight(54)
+        self.oops_button.setFixedHeight(62)
         self.oops_button.setStyleSheet(
             "QPushButton { background: #9b3d48; color: white; border: none; border-radius: 12px;"
-            "font-size: 17px; font-weight: 800; padding: 5px; }"
+            "font-size: 18px; font-weight: 800; padding: 5px; }"
             "QPushButton:pressed { background: #7d3039; }"
             "QPushButton:disabled { background: #50373b; color: #aaa; }"
         )
         self.oops_button.clicked.connect(self.delete_last_frame)
 
         self.exit_button = QPushButton("EXIT")
-        self.exit_button.setFixedHeight(54)
+        self.exit_button.setFixedHeight(62)
         self.exit_button.setStyleSheet(
             "QPushButton { background: #343947; color: white; border: none; border-radius: 12px;"
-            "font-size: 16px; font-weight: 700; padding: 5px; }"
+            "font-size: 17px; font-weight: 700; padding: 5px; }"
             "QPushButton:pressed { background: #242833; }"
         )
         self.exit_button.clicked.connect(self.begin_shutdown)
@@ -186,25 +192,21 @@ class PiCapStageThree(QWidget):
         self.oops_button.setEnabled((self.frame_count > 0) and not busy)
         self.exit_button.setEnabled(not self.shutting_down)
         self.onion_button.setEnabled(not self.playing and not self.shutting_down)
-        self.onion_slider.setEnabled(not self.playing and not self.shutting_down)
+        self.strength_button.setEnabled(not self.playing and not self.shutting_down)
         self.fps_button.setEnabled(not self.shutting_down)
         self.play_button.setEnabled((self.frame_count > 0) and not self.shutting_down)
 
     def capture_photo(self):
         if self.pending_filename is not None or self.shutting_down or self.playing:
             return
-
         next_number = self.frame_count + 1
         self.pending_frame_number = next_number
         self.pending_filename = self.frame_path(next_number)
         self.status.setText(f"Taking frame {next_number}...")
         self.refresh_buttons()
-
         try:
             self.picam2.capture_file(
-                str(self.pending_filename),
-                wait=False,
-                signal_function=self.preview.signal_done,
+                str(self.pending_filename), wait=False, signal_function=self.preview.signal_done
             )
         except Exception as exc:
             self.pending_filename = None
@@ -215,7 +217,6 @@ class PiCapStageThree(QWidget):
     def capture_done(self, job):
         if self.shutting_down:
             return
-
         try:
             self.picam2.wait(job)
             if self.pending_frame_number is not None:
@@ -223,20 +224,17 @@ class PiCapStageThree(QWidget):
                 self.update_frame_label()
                 self.status.setText(f"Saved frame {self.frame_count}")
                 self.refresh_onion_overlay()
-            else:
-                self.status.setText("Frame saved")
         except Exception as exc:
             self.status.setText(f"Camera error: {exc}")
         finally:
             self.pending_filename = None
             self.pending_frame_number = None
             self.refresh_buttons()
-            QTimer.singleShot(1200, self.reset_status)
+            QTimer.singleShot(1100, self.reset_status)
 
     def delete_last_frame(self):
         if self.pending_filename is not None or self.frame_count <= 0 or self.shutting_down or self.playing:
             return
-
         filename = self.frame_path(self.frame_count)
         try:
             if filename.exists():
@@ -244,44 +242,39 @@ class PiCapStageThree(QWidget):
                 deleted_number = self.frame_count
                 self.frame_count -= 1
                 self.update_frame_label()
-                self.status.setText(f"Oops! Deleted frame {deleted_number}")
+                self.status.setText(f"Deleted frame {deleted_number}")
                 self.refresh_onion_overlay()
             else:
                 self.frame_count = self.find_last_frame_number()
                 self.update_frame_label()
-                self.status.setText("Last frame was already missing")
                 self.refresh_onion_overlay()
         except Exception as exc:
             self.status.setText(f"Delete error: {exc}")
         finally:
             self.refresh_buttons()
-            QTimer.singleShot(1400, self.reset_status)
+            QTimer.singleShot(1200, self.reset_status)
 
     def toggle_onion(self):
         self.onion_enabled = not self.onion_enabled
         self.onion_button.setText("ONION ON" if self.onion_enabled else "ONION OFF")
         self.refresh_onion_overlay()
 
-    def change_onion_strength(self, value):
-        self.onion_effect.setOpacity(value / 100.0)
+    def cycle_onion_strength(self):
+        self.onion_level_index = (self.onion_level_index + 1) % len(ONION_LEVELS)
+        label, opacity = ONION_LEVELS[self.onion_level_index]
+        self.strength_button.setText(f"GHOST {label}")
+        self.onion_effect.setOpacity(opacity)
 
     def refresh_onion_overlay(self):
         if not self.onion_enabled or self.frame_count <= 0 or self.playing:
             self.onion_overlay.hide()
             return
-
         path = self.frame_path(self.frame_count)
-        if not path.exists():
-            self.onion_overlay.hide()
-            return
-
         pixmap = QPixmap(str(path))
         if pixmap.isNull():
             self.onion_overlay.hide()
             return
-
-        target = self.preview.size()
-        scaled = pixmap.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = pixmap.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.onion_overlay.setPixmap(scaled)
         self.onion_overlay.show()
         self.onion_overlay.raise_()
@@ -302,7 +295,6 @@ class PiCapStageThree(QWidget):
     def start_playback(self):
         if self.frame_count <= 0 or self.shutting_down:
             return
-
         self.playing = True
         self.playback_index = 1
         self.onion_overlay.hide()
@@ -312,7 +304,6 @@ class PiCapStageThree(QWidget):
         self.status.setText("Playing...")
         self.refresh_buttons()
         self.show_playback_frame()
-
         fps = FPS_OPTIONS[self.fps_index]
         self.playback_timer.start(max(1, round(1000 / fps)))
 
@@ -326,13 +317,11 @@ class PiCapStageThree(QWidget):
         self.show_playback_frame()
 
     def show_playback_frame(self):
-        path = self.frame_path(self.playback_index)
-        pixmap = QPixmap(str(path))
-        if pixmap.isNull():
-            return
-        target = self.playback_view.size()
-        scaled = pixmap.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
-        self.playback_view.setPixmap(scaled)
+        pixmap = QPixmap(str(self.frame_path(self.playback_index)))
+        if not pixmap.isNull():
+            self.playback_view.setPixmap(
+                pixmap.scaled(self.playback_view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+            )
 
     def stop_playback(self):
         self.playback_timer.stop()
@@ -370,18 +359,15 @@ class PiCapStageThree(QWidget):
                 self.preview.done_signal.disconnect(self.capture_done)
             except Exception:
                 pass
-
             try:
                 self.picam2.stop()
             except Exception:
                 pass
-
             try:
                 self.preview.hide()
                 self.preview.deleteLater()
             except Exception:
                 pass
-
             QTimer.singleShot(0, self.finish_camera_close)
             event.accept()
         except Exception:
