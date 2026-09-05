@@ -22,6 +22,7 @@ class PiCapStageTwo(QWidget):
         self.pending_filename = None
         self.pending_frame_number = None
         self.frame_count = self.find_last_frame_number()
+        self.shutting_down = False
 
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
@@ -77,7 +78,7 @@ class PiCapStageTwo(QWidget):
             "}"
             "QPushButton:pressed { background: #242833; }"
         )
-        self.exit_button.clicked.connect(self.close)
+        self.exit_button.clicked.connect(self.begin_shutdown)
 
         button_row = QHBoxLayout()
         button_row.setSpacing(8)
@@ -111,13 +112,14 @@ class PiCapStageTwo(QWidget):
         self.frame_label.setText(f"FRAMES: {self.frame_count}")
 
     def refresh_buttons(self):
-        busy = self.pending_filename is not None
+        busy = self.pending_filename is not None or self.shutting_down
         self.capture_button.setEnabled(not busy)
         self.oops_button.setEnabled((self.frame_count > 0) and not busy)
+        self.exit_button.setEnabled(not self.shutting_down)
 
     def capture_photo(self):
         """Save the next stop-motion frame without blocking the touchscreen UI."""
-        if self.pending_filename is not None:
+        if self.pending_filename is not None or self.shutting_down:
             return
 
         next_number = self.frame_count + 1
@@ -140,6 +142,9 @@ class PiCapStageTwo(QWidget):
 
     def capture_done(self, job):
         """Complete the asynchronous capture and update the frame counter."""
+        if self.shutting_down:
+            return
+
         try:
             self.picam2.wait(job)
             if self.pending_frame_number is not None:
@@ -158,7 +163,7 @@ class PiCapStageTwo(QWidget):
 
     def delete_last_frame(self):
         """Delete only the most recent frame and roll the counter back by one."""
-        if self.pending_filename is not None or self.frame_count <= 0:
+        if self.pending_filename is not None or self.frame_count <= 0 or self.shutting_down:
             return
 
         filename = FRAMES_DIR / f"frame{self.frame_count:04d}.jpg"
@@ -180,15 +185,49 @@ class PiCapStageTwo(QWidget):
             QTimer.singleShot(1500, self.reset_status)
 
     def reset_status(self):
-        if self.pending_filename is None:
+        if self.pending_filename is None and not self.shutting_down:
             self.status.setText("Ready")
 
+    def begin_shutdown(self):
+        """Stop camera activity first, then close the window on the next Qt tick."""
+        if self.shutting_down:
+            return
+        self.shutting_down = True
+        self.status.setText("Closing...")
+        self.refresh_buttons()
+        QTimer.singleShot(50, self.close)
+
     def closeEvent(self, event):
+        self.shutting_down = True
         try:
-            self.picam2.stop()
-            self.picam2.close()
-        finally:
+            # Disconnect the Qt completion callback before the camera notifier is torn down.
+            try:
+                self.preview.done_signal.disconnect(self.capture_done)
+            except Exception:
+                pass
+
+            try:
+                self.picam2.stop()
+            except Exception:
+                pass
+
+            # Let the preview widget release its notifier before closing Picamera2.
+            try:
+                self.preview.hide()
+                self.preview.deleteLater()
+            except Exception:
+                pass
+
+            QTimer.singleShot(0, self.finish_camera_close)
             event.accept()
+        except Exception:
+            event.accept()
+
+    def finish_camera_close(self):
+        try:
+            self.picam2.close()
+        except Exception:
+            pass
 
 
 if __name__ == "__main__":
