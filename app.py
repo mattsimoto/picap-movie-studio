@@ -2,7 +2,7 @@ from pathlib import Path
 import re
 import sys
 
-from PyQt5.QtCore import QTimer, Qt
+from PyQt5.QtCore import QTimer, Qt, QSize
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -264,6 +264,11 @@ class PiCapStageThree(QWidget):
         label, opacity = ONION_LEVELS[self.onion_level_index]
         self.strength_button.setText(f"GHOST {label}")
         self.onion_effect.setOpacity(opacity)
+        if self.onion_enabled:
+            self.refresh_onion_overlay()
+
+    def preview_target_size(self):
+        return QSize(max(1, self.preview.width()), max(1, self.preview.height()))
 
     def refresh_onion_overlay(self):
         if not self.onion_enabled or self.frame_count <= 0 or self.playing:
@@ -274,7 +279,7 @@ class PiCapStageThree(QWidget):
         if pixmap.isNull():
             self.onion_overlay.hide()
             return
-        scaled = pixmap.scaled(self.preview.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        scaled = pixmap.scaled(self.preview_target_size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
         self.onion_overlay.setPixmap(scaled)
         self.onion_overlay.show()
         self.onion_overlay.raise_()
@@ -319,8 +324,9 @@ class PiCapStageThree(QWidget):
     def show_playback_frame(self):
         pixmap = QPixmap(str(self.frame_path(self.playback_index)))
         if not pixmap.isNull():
+            target = QSize(max(1, self.playback_view.width()), max(1, self.playback_view.height()))
             self.playback_view.setPixmap(
-                pixmap.scaled(self.playback_view.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+                pixmap.scaled(target, Qt.KeepAspectRatio, Qt.SmoothTransformation)
             )
 
     def stop_playback(self):
