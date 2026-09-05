@@ -22,11 +22,12 @@ fi
 
 echo "Rendering $COUNT frames at $FPS FPS..."
 echo "FFmpeg: $(command -v ffmpeg)"
+echo "Mode: 720p MPEG-4 fast render"
 echo "Writing diagnostics to: $LOG_PATH"
-rm -f "$LOG_PATH"
+rm -f "$LOG_PATH" "$MOVIE_PATH"
 
 set +e
-timeout 60 ffmpeg \
+timeout 30 ffmpeg \
   -y \
   -hide_banner \
   -loglevel info \
@@ -35,9 +36,8 @@ timeout 60 ffmpeg \
   -i 'frame%04d.jpg' \
   -frames:v "$COUNT" \
   -vf 'scale=1280:720:force_original_aspect_ratio=decrease,pad=1280:720:(ow-iw)/2:(oh-ih)/2' \
-  -c:v libx264 \
-  -preset ultrafast \
-  -crf 23 \
+  -c:v mpeg4 \
+  -q:v 5 \
   -pix_fmt yuv420p \
   -movflags +faststart \
   "$MOVIE_PATH" >"$LOG_PATH" 2>&1
@@ -48,7 +48,7 @@ echo "FFmpeg exit code: $RC"
 
 if [ "$RC" -ne 0 ]; then
   echo "---- FFmpeg error log ----"
-  tail -n 30 "$LOG_PATH"
+  tail -n 40 "$LOG_PATH"
   echo "--------------------------"
   exit "$RC"
 fi
@@ -59,6 +59,6 @@ if [ -s "$MOVIE_PATH" ]; then
 else
   echo "ERROR: movie was not created"
   echo "---- FFmpeg log ----"
-  tail -n 30 "$LOG_PATH"
+  tail -n 40 "$LOG_PATH"
   exit 1
 fi
