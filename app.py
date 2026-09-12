@@ -15,6 +15,7 @@ from PyQt5.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+from libcamera import Transform
 from picamera2 import Picamera2
 from picamera2.previews.qt import QPicamera2
 
@@ -48,7 +49,8 @@ class PiCapStageFour(QWidget):
 
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
-            main={"size": (1280, 720), "format": "RGB888"}
+            main={"size": (1280, 720), "format": "RGB888"},
+            transform=Transform(hflip=1, vflip=1),
         )
         self.picam2.configure(config)
 
