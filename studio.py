@@ -7,12 +7,14 @@ import subprocess
 import sys
 from datetime import datetime
 
-from PyQt5.QtCore import QProcess, Qt
+from PyQt5.QtCore import QProcess, QSize, Qt
+from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListView,
     QListWidget,
     QListWidgetItem,
     QMessageBox,
@@ -52,13 +54,25 @@ def write_meta(project_dir: Path, name: str):
     (project_dir / "project.json").write_text(json.dumps(meta, indent=2))
 
 
+def frame_paths(project_dir: Path):
+    frames_dir = project_dir / "frames"
+    if not frames_dir.exists():
+        return []
+    return sorted(frames_dir.glob("frame*.jpg"))
+
+
 def frame_count(project_dir: Path) -> int:
-    frames = project_dir / "frames"
-    return len(list(frames.glob("frame*.jpg"))) if frames.exists() else 0
+    return len(frame_paths(project_dir))
 
 
 def movie_path(project_dir: Path) -> Path:
     return project_dir / "movie.avi"
+
+
+def project_thumbnail(project_dir: Path):
+    """Use the newest captured frame as the project's gallery cover."""
+    frames = frame_paths(project_dir)
+    return frames[-1] if frames else None
 
 
 def migrate_legacy_folder():
@@ -88,7 +102,6 @@ def point_working_link(project_dir: Path):
     if WORKING_LINK.is_symlink():
         WORKING_LINK.unlink()
     elif WORKING_LINK.exists():
-        # Safety fallback; migrate_legacy_folder normally handles this.
         raise RuntimeError(f"Cannot replace existing {WORKING_LINK}")
 
     WORKING_LINK.symlink_to(project_dir, target_is_directory=True)
@@ -137,6 +150,7 @@ class StudioHome(QWidget):
             "QPushButton{background:#343947;color:white;border:2px solid #596174;border-radius:10px;"
             "font-size:16px;font-weight:800;padding:6px;}"
             "QPushButton:pressed{background:#596174;}"
+            "QPushButton:disabled{background:#252832;color:#777;border-color:#333744;}"
         )
         return b
 
@@ -195,21 +209,34 @@ class StudioHome(QWidget):
     def build_gallery_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
+        layout.setSpacing(6)
+
         title = QLabel("MY MOVIES")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size:28px;font-weight:900;")
+        title.setFixedHeight(38)
+        title.setStyleSheet("font-size:27px;font-weight:900;")
 
         self.project_list = QListWidget()
+        self.project_list.setViewMode(QListView.IconMode)
+        self.project_list.setMovement(QListView.Static)
+        self.project_list.setResizeMode(QListView.Adjust)
+        self.project_list.setWrapping(True)
+        self.project_list.setWordWrap(True)
+        self.project_list.setIconSize(QSize(190, 108))
+        self.project_list.setGridSize(QSize(235, 168))
+        self.project_list.setSpacing(5)
         self.project_list.setStyleSheet(
             "QListWidget{background:#202530;color:white;border:2px solid #3b4352;border-radius:10px;"
-            "font-size:18px;padding:4px;}"
-            "QListWidget::item{padding:12px;border-bottom:1px solid #343947;}"
-            "QListWidget::item:selected{background:#35506b;}"
+            "font-size:15px;padding:5px;}"
+            "QListWidget::item{background:#292f3b;border:2px solid #3b4352;border-radius:10px;"
+            "padding:6px;margin:2px;}"
+            "QListWidget::item:selected{background:#35506b;border:2px solid #74a0c8;}"
         )
         self.project_list.itemSelectionChanged.connect(self.gallery_selection_changed)
         self.project_list.itemDoubleClicked.connect(lambda _item: self.open_selected_project())
 
         buttons = QHBoxLayout()
+        buttons.setSpacing(5)
         self.open_btn = self.small_button("OPEN & ADD SCENES")
         self.open_btn.clicked.connect(self.open_selected_project)
         self.watch_btn = self.small_button("WATCH")
@@ -229,18 +256,38 @@ class StudioHome(QWidget):
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
 
+    def make_thumbnail_icon(self, project_dir: Path):
+        thumb_path = project_thumbnail(project_dir)
+        if thumb_path is None:
+            return QIcon()
+        pixmap = QPixmap(str(thumb_path))
+        if pixmap.isNull():
+            return QIcon()
+        # Crop visually by scaling to a 16:9 cover card. Qt keeps the source intact on disk.
+        scaled = pixmap.scaled(190, 108, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        if scaled.width() > 190 or scaled.height() > 108:
+            x = max(0, (scaled.width() - 190) // 2)
+            y = max(0, (scaled.height() - 108) // 2)
+            scaled = scaled.copy(x, y, 190, 108)
+        return QIcon(scaled)
+
     def refresh_gallery(self):
         self.project_list.clear()
         projects = [p for p in PROJECTS_DIR.iterdir() if p.is_dir()]
         projects.sort(key=lambda p: p.stat().st_mtime, reverse=True)
+
         for p in projects:
             meta = project_meta(p)
             count = frame_count(p)
-            rendered = " • movie ready" if movie_path(p).exists() else ""
-            label = f"{meta.get('name', p.name)}   • {count} frames{rendered}"
-            item = QListWidgetItem(label)
+            ready = movie_path(p).exists()
+            status = "READY TO WATCH" if ready else "IN PROGRESS"
+            label = f"{meta.get('name', p.name)}\n{count} frames • {status}"
+            item = QListWidgetItem(self.make_thumbnail_icon(p), label)
             item.setData(Qt.UserRole, str(p))
+            item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
+            item.setToolTip(meta.get("name", p.name))
             self.project_list.addItem(item)
+
         self.gallery_selection_changed()
 
     def gallery_selection_changed(self):
@@ -288,7 +335,6 @@ class StudioHome(QWidget):
     def project_closed(self, _code, _status):
         self.process = None
         if self.selected_project and self.selected_project.exists():
-            # Touch metadata so most recently worked project sorts first.
             try:
                 meta_path = self.selected_project / "project.json"
                 meta_path.touch(exist_ok=True)
