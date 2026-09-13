@@ -255,7 +255,7 @@ class StudioHome(QWidget):
         self.stack.addWidget(self.error_page)
 
         root = QVBoxLayout()
-        root.setContentsMargins(10, 8, 10, 8)
+        root.setContentsMargins(10, 8, 10, 14)
         root.addWidget(self.stack)
         self.setLayout(root)
 
@@ -281,10 +281,10 @@ class StudioHome(QWidget):
 
     def small_button(self, text, color="#343947"):
         b = QPushButton(text)
-        b.setMinimumHeight(42)
+        b.setMinimumHeight(54)
         b.setStyleSheet(
-            f"QPushButton{{background:{color};color:white;border:2px solid #596174;border-radius:10px;"
-            "font-size:15px;font-weight:800;padding:4px;}"
+            f"QPushButton{{background:{color};color:white;border:2px solid #596174;border-radius:12px;"
+            "font-size:16px;font-weight:800;padding:6px;}"
             "QPushButton:pressed{background:#596174;}"
             "QPushButton:disabled{background:#252832;color:#777;border-color:#333744;}"
         )
@@ -318,7 +318,7 @@ class StudioHome(QWidget):
     def build_title_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setContentsMargins(4, 2, 4, 8)
         layout.setSpacing(4)
 
         self.title_heading = QLabel("NEW MOVIE")
@@ -336,9 +336,13 @@ class StudioHome(QWidget):
         keyboard = TouchKeyboard(lambda: self.title_input)
 
         actions = QHBoxLayout()
+        actions.setSpacing(8)
+        actions.setContentsMargins(0, 4, 0, 8)
         self.title_action_btn = self.small_button("START FILMING", "#527a55")
+        self.title_action_btn.setMinimumHeight(64)
         self.title_action_btn.clicked.connect(self.commit_title_edit)
         back_btn = self.small_button("BACK")
+        back_btn.setMinimumHeight(64)
         back_btn.clicked.connect(self.cancel_title_edit)
         actions.addWidget(self.title_action_btn, 2)
         actions.addWidget(back_btn, 1)
