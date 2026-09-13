@@ -7,12 +7,12 @@ import subprocess
 import sys
 from datetime import datetime
 
-from PyQt5.QtCore import QProcess, QSize, QTimer, Qt
+from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
+    QGridLayout,
     QHBoxLayout,
-    QInputDialog,
     QLabel,
     QLineEdit,
     QListView,
@@ -25,10 +25,11 @@ from PyQt5.QtWidgets import (
     QWidget,
 )
 
+from stage4_mjpeg import PiCapStageFourMJPEG
+
 BASE_DIR = Path.home() / "PiCapMovies"
 PROJECTS_DIR = BASE_DIR / "projects"
 WORKING_LINK = BASE_DIR / "stage2-test"
-APP_SCRIPT = Path(__file__).with_name("stage4_mjpeg.py")
 PROJECTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
@@ -116,24 +117,142 @@ def point_working_link(project_dir: Path):
     WORKING_LINK.symlink_to(project_dir, target_is_directory=True)
 
 
+class FilmingWindow(PiCapStageFourMJPEG):
+    """Camera window that tells the studio launcher when filming is closed."""
+
+    studio_closed = pyqtSignal()
+
+    def closeEvent(self, event):
+        super().closeEvent(event)
+        self.studio_closed.emit()
+
+
+class TouchKeyboard(QWidget):
+    """Simple built-in keyboard so PiCap never depends on an external keyboard."""
+
+    def __init__(self, target_getter, parent=None):
+        super().__init__(parent)
+        self.target_getter = target_getter
+        self.setStyleSheet("background:transparent;")
+
+        grid = QGridLayout(self)
+        grid.setContentsMargins(0, 0, 0, 0)
+        grid.setHorizontalSpacing(4)
+        grid.setVerticalSpacing(4)
+
+        key_style = (
+            "QPushButton{background:#343947;color:white;border:1px solid #596174;"
+            "border-radius:7px;font-size:17px;font-weight:800;padding:2px;}"
+            "QPushButton:pressed{background:#596174;}"
+        )
+        wide_style = (
+            "QPushButton{background:#35506b;color:white;border:1px solid #587a99;"
+            "border-radius:7px;font-size:15px;font-weight:800;padding:2px;}"
+            "QPushButton:pressed{background:#496b89;}"
+        )
+
+        rows = [
+            "1234567890",
+            "QWERTYUIOP",
+            "ASDFGHJKL",
+            "ZXCVBNM",
+        ]
+
+        for row_index, chars in enumerate(rows):
+            start_col = 0 if row_index < 2 else (1 if row_index == 2 else 2)
+            for i, char in enumerate(chars):
+                button = QPushButton(char)
+                button.setFixedHeight(38)
+                button.setStyleSheet(key_style)
+                button.clicked.connect(lambda _checked=False, c=char: self.type_char(c))
+                grid.addWidget(button, row_index, start_col + i)
+
+        back = QPushButton("⌫")
+        back.setFixedHeight(40)
+        back.setStyleSheet(wide_style)
+        back.clicked.connect(self.backspace)
+        grid.addWidget(back, 4, 0, 1, 2)
+
+        hyphen = QPushButton("-")
+        hyphen.setFixedHeight(40)
+        hyphen.setStyleSheet(key_style)
+        hyphen.clicked.connect(lambda: self.insert_text("-"))
+        grid.addWidget(hyphen, 4, 2)
+
+        apostrophe = QPushButton("'")
+        apostrophe.setFixedHeight(40)
+        apostrophe.setStyleSheet(key_style)
+        apostrophe.clicked.connect(lambda: self.insert_text("'"))
+        grid.addWidget(apostrophe, 4, 3)
+
+        space = QPushButton("SPACE")
+        space.setFixedHeight(40)
+        space.setStyleSheet(wide_style)
+        space.clicked.connect(lambda: self.insert_text(" "))
+        grid.addWidget(space, 4, 4, 1, 4)
+
+        clear = QPushButton("CLEAR")
+        clear.setFixedHeight(40)
+        clear.setStyleSheet(wide_style)
+        clear.clicked.connect(self.clear_text)
+        grid.addWidget(clear, 4, 8, 1, 2)
+
+    def target(self):
+        return self.target_getter()
+
+    def insert_text(self, text):
+        target = self.target()
+        if target is not None:
+            target.insert(text)
+            target.setFocus()
+
+    def type_char(self, char):
+        target = self.target()
+        if target is None:
+            return
+        current = target.text()
+        # Makes kid-entered titles naturally look like title case without a Shift key.
+        if not current or current[-1].isspace() or current[-1] in "-'":
+            self.insert_text(char.upper())
+        else:
+            self.insert_text(char.lower())
+
+    def backspace(self):
+        target = self.target()
+        if target is not None:
+            target.backspace()
+            target.setFocus()
+
+    def clear_text(self):
+        target = self.target()
+        if target is not None:
+            target.clear()
+            target.setFocus()
+
+
 class StudioHome(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PiCap Movie Studio")
         self.setStyleSheet("background:#161922;color:white;")
-        self.process = None
+
         self.selected_project = None
+        self.filming_window = None
         self.loading_tick = 0
+        self.title_mode = "new"
+        self.rename_target = None
 
         self.stack = QStackedWidget()
         self.home_page = self.build_home_page()
         self.gallery_page = self.build_gallery_page()
-        self.new_page = self.build_new_page()
+        self.title_page = self.build_title_page()
         self.loading_page = self.build_loading_page()
+        self.error_page = self.build_error_page()
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.gallery_page)
-        self.stack.addWidget(self.new_page)
+        self.stack.addWidget(self.title_page)
         self.stack.addWidget(self.loading_page)
+        self.stack.addWidget(self.error_page)
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 8)
@@ -141,7 +260,7 @@ class StudioHome(QWidget):
         self.setLayout(root)
 
         self.loading_timer = QTimer(self)
-        self.loading_timer.setInterval(450)
+        self.loading_timer.setInterval(500)
         self.loading_timer.timeout.connect(self.animate_loading)
 
         migrate_legacy_folder()
@@ -151,10 +270,10 @@ class StudioHome(QWidget):
 
     def big_button(self, text, color="#343947"):
         b = QPushButton(text)
-        b.setMinimumHeight(74)
+        b.setMinimumHeight(68)
         b.setStyleSheet(
             f"QPushButton{{background:{color};color:white;border:none;border-radius:14px;"
-            "font-size:24px;font-weight:800;padding:10px;}"
+            "font-size:23px;font-weight:800;padding:8px;}"
             "QPushButton:pressed{background:#596174;}"
             "QPushButton:disabled{background:#252832;color:#777;}"
         )
@@ -162,10 +281,10 @@ class StudioHome(QWidget):
 
     def small_button(self, text, color="#343947"):
         b = QPushButton(text)
-        b.setMinimumHeight(44)
+        b.setMinimumHeight(42)
         b.setStyleSheet(
             f"QPushButton{{background:{color};color:white;border:2px solid #596174;border-radius:10px;"
-            "font-size:15px;font-weight:800;padding:5px;}"
+            "font-size:15px;font-weight:800;padding:4px;}"
             "QPushButton:pressed{background:#596174;}"
             "QPushButton:disabled{background:#252832;color:#777;border-color:#333744;}"
         )
@@ -182,7 +301,7 @@ class StudioHome(QWidget):
         subtitle.setStyleSheet("font-size:16px;color:#d8dbe5;padding-bottom:12px;")
 
         new_btn = self.big_button("NEW MOVIE", "#527a55")
-        new_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.new_page))
+        new_btn.clicked.connect(self.start_new_title)
         gallery_btn = self.big_button("MY MOVIES", "#35506b")
         gallery_btn.clicked.connect(self.open_gallery)
         exit_btn = self.big_button("EXIT", "#703c45")
@@ -196,31 +315,38 @@ class StudioHome(QWidget):
         layout.addStretch(1)
         return w
 
-    def build_new_page(self):
+    def build_title_page(self):
         w = QWidget()
         layout = QVBoxLayout(w)
-        title = QLabel("NEW MOVIE")
-        title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size:28px;font-weight:900;")
-        prompt = QLabel("Give your movie a name")
-        prompt.setAlignment(Qt.AlignCenter)
-        prompt.setStyleSheet("font-size:17px;color:#d8dbe5;")
-        self.name_input = QLineEdit()
-        self.name_input.setPlaceholderText("The Great Mouse Picnic")
-        self.name_input.setMinimumHeight(62)
-        self.name_input.setStyleSheet(
-            "QLineEdit{background:white;color:#111;border-radius:10px;font-size:22px;padding:8px;}"
+        layout.setContentsMargins(4, 2, 4, 2)
+        layout.setSpacing(4)
+
+        self.title_heading = QLabel("NEW MOVIE")
+        self.title_heading.setAlignment(Qt.AlignCenter)
+        self.title_heading.setFixedHeight(32)
+        self.title_heading.setStyleSheet("font-size:25px;font-weight:900;")
+
+        self.title_input = QLineEdit()
+        self.title_input.setPlaceholderText("Movie title")
+        self.title_input.setFixedHeight(48)
+        self.title_input.setStyleSheet(
+            "QLineEdit{background:white;color:#111;border-radius:9px;font-size:21px;padding:6px;}"
         )
-        start_btn = self.big_button("START FILMING", "#527a55")
-        start_btn.clicked.connect(self.create_project)
+
+        keyboard = TouchKeyboard(lambda: self.title_input)
+
+        actions = QHBoxLayout()
+        self.title_action_btn = self.small_button("START FILMING", "#527a55")
+        self.title_action_btn.clicked.connect(self.commit_title_edit)
         back_btn = self.small_button("BACK")
-        back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.home_page))
-        layout.addWidget(title)
-        layout.addWidget(prompt)
-        layout.addWidget(self.name_input)
-        layout.addWidget(start_btn)
-        layout.addWidget(back_btn)
-        layout.addStretch(1)
+        back_btn.clicked.connect(self.cancel_title_edit)
+        actions.addWidget(self.title_action_btn, 2)
+        actions.addWidget(back_btn, 1)
+
+        layout.addWidget(self.title_heading)
+        layout.addWidget(self.title_input)
+        layout.addWidget(keyboard, 1)
+        layout.addLayout(actions)
         return w
 
     def build_loading_page(self):
@@ -238,7 +364,8 @@ class StudioHome(QWidget):
         self.loading_message = QLabel("Setting up your movie...")
         self.loading_message.setAlignment(Qt.AlignCenter)
         self.loading_message.setStyleSheet("font-size:18px;color:#d8dbe5;padding:8px;")
-        hint = QLabel("This can take a few seconds. Your movie is safe.")
+        hint = QLabel("The camera can take a few seconds to wake up. Please wait here.")
+        hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignCenter)
         hint.setStyleSheet("font-size:14px;color:#9da5b4;padding:8px;")
 
@@ -246,6 +373,28 @@ class StudioHome(QWidget):
         layout.addWidget(self.loading_project)
         layout.addWidget(self.loading_message)
         layout.addWidget(hint)
+        layout.addStretch(1)
+        return w
+
+    def build_error_page(self):
+        w = QWidget()
+        layout = QVBoxLayout(w)
+        layout.addStretch(1)
+        title = QLabel("THE CAMERA NEEDS HELP")
+        title.setAlignment(Qt.AlignCenter)
+        title.setStyleSheet("font-size:28px;font-weight:900;color:#f2b84b;")
+        self.error_message = QLabel("PiCap could not start the camera.")
+        self.error_message.setWordWrap(True)
+        self.error_message.setAlignment(Qt.AlignCenter)
+        self.error_message.setStyleSheet("font-size:16px;color:#d8dbe5;padding:14px;")
+        retry_btn = self.big_button("TRY AGAIN", "#527a55")
+        retry_btn.clicked.connect(self.retry_selected_project)
+        gallery_btn = self.small_button("BACK TO MY MOVIES")
+        gallery_btn.clicked.connect(self.open_gallery)
+        layout.addWidget(title)
+        layout.addWidget(self.error_message)
+        layout.addWidget(retry_btn)
+        layout.addWidget(gallery_btn)
         layout.addStretch(1)
         return w
 
@@ -308,6 +457,38 @@ class StudioHome(QWidget):
         layout.addLayout(manage)
         return w
 
+    def start_new_title(self):
+        self.title_mode = "new"
+        self.rename_target = None
+        self.title_heading.setText("NEW MOVIE")
+        self.title_action_btn.setText("START FILMING")
+        self.title_input.clear()
+        self.stack.setCurrentWidget(self.title_page)
+        self.title_input.setFocus()
+
+    def cancel_title_edit(self):
+        if self.title_mode == "rename":
+            self.open_gallery()
+        else:
+            self.stack.setCurrentWidget(self.home_page)
+
+    def commit_title_edit(self):
+        name = self.title_input.text().strip()
+        if not name:
+            name = f"Movie {datetime.now().strftime('%b %d %H-%M')}"
+
+        if self.title_mode == "rename":
+            self.finish_rename(name)
+        else:
+            self.create_project_with_name(name)
+
+    def create_project_with_name(self, name):
+        project_dir = unique_project_path(name)
+        (project_dir / "frames").mkdir(parents=True)
+        write_meta(project_dir, name)
+        self.title_input.clear()
+        self.launch_project(project_dir)
+
     def open_gallery(self):
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
@@ -360,14 +541,6 @@ class StudioHome(QWidget):
         self.delete_btn.setEnabled(has)
         self.watch_btn.setEnabled(bool(p and movie_path(p).exists()))
 
-    def create_project(self):
-        name = self.name_input.text().strip() or f"Movie {datetime.now().strftime('%b %d %H-%M')}"
-        project_dir = unique_project_path(name)
-        (project_dir / "frames").mkdir(parents=True)
-        write_meta(project_dir, name)
-        self.name_input.clear()
-        self.launch_project(project_dir)
-
     def open_selected_project(self):
         p = self.selected_project_path()
         if p:
@@ -377,22 +550,48 @@ class StudioHome(QWidget):
         p = self.selected_project_path()
         if not p:
             return
+        self.title_mode = "rename"
+        self.rename_target = p
+        self.title_heading.setText("RENAME MOVIE")
+        self.title_action_btn.setText("SAVE NAME")
+        self.title_input.setText(project_meta(p).get("name", p.name))
+        self.title_input.selectAll()
+        self.stack.setCurrentWidget(self.title_page)
+        self.title_input.setFocus()
+
+    def finish_rename(self, new_name):
+        p = self.rename_target
+        if not p or not p.exists():
+            self.open_gallery()
+            return
         meta = project_meta(p)
         old_name = meta.get("name", p.name)
-        new_name, ok = QInputDialog.getText(self, "Rename movie", "Movie name:", text=old_name)
-        new_name = new_name.strip()
-        if not ok or not new_name or new_name == old_name:
+        if new_name == old_name:
+            self.open_gallery()
             return
 
         new_dir = unique_project_path(new_name, exclude=p)
         try:
+            if WORKING_LINK.is_symlink():
+                try:
+                    points_to_project = WORKING_LINK.resolve() == p.resolve()
+                except Exception:
+                    points_to_project = False
+            else:
+                points_to_project = False
+
             if new_dir != p:
                 p.rename(new_dir)
                 p = new_dir
+
             write_meta(p, new_name, created=meta.get("created") or None)
-            self.refresh_gallery()
+            if points_to_project:
+                point_working_link(p)
+            self.rename_target = None
+            self.open_gallery()
         except Exception as exc:
-            QMessageBox.warning(self, "Could not rename movie", str(exc))
+            self.error_message.setText(f"Could not rename this movie.\n\n{exc}")
+            self.stack.setCurrentWidget(self.error_page)
 
     def duplicate_selected_project(self):
         p = self.selected_project_path()
@@ -461,41 +660,59 @@ class StudioHome(QWidget):
         try:
             point_working_link(project_dir)
         except Exception as exc:
-            QMessageBox.critical(self, "Project error", str(exc))
+            self.error_message.setText(f"PiCap could not open this movie.\n\n{exc}")
+            self.stack.setCurrentWidget(self.error_page)
             return
 
         self.selected_project = project_dir
         self.show_loading(project_dir)
+        # Stay in the same Qt application instead of starting a second Python process.
+        # This prevents the launcher from falling back to the terminal/gallery when
+        # the child process exits and removes a large chunk of startup overhead.
+        QTimer.singleShot(120, self.open_filming_window)
 
-        # Keep the launcher fullscreen behind the camera app. This prevents the
-        # desktop or terminal from flashing on screen while Picamera2 starts.
-        self.process = QProcess(self)
-        self.process.finished.connect(self.project_closed)
-        self.process.errorOccurred.connect(self.project_launch_error)
-        QTimer.singleShot(80, lambda: self.process.start(sys.executable, [str(APP_SCRIPT)]))
+    def open_filming_window(self):
+        if not self.selected_project:
+            return
+        try:
+            self.filming_window = FilmingWindow()
+            self.filming_window.studio_closed.connect(self.filming_closed)
+            self.filming_window.showFullScreen()
+            self.filming_window.raise_()
+            self.filming_window.activateWindow()
+            self.loading_timer.stop()
+        except Exception as exc:
+            self.loading_timer.stop()
+            self.filming_window = None
+            self.error_message.setText(
+                "PiCap could not start the camera.\n\n"
+                f"{type(exc).__name__}: {exc}\n\n"
+                "Check that the camera is connected, then tap TRY AGAIN."
+            )
+            self.stack.setCurrentWidget(self.error_page)
 
-    def project_launch_error(self, _error):
+    def filming_closed(self):
         self.loading_timer.stop()
-        self.process = None
-        self.selected_project = None
-        self.refresh_gallery()
-        self.stack.setCurrentWidget(self.gallery_page)
-        QMessageBox.warning(self, "Camera did not start", "PiCap could not open the filming screen.")
-
-    def project_closed(self, _code, _status):
-        self.loading_timer.stop()
-        self.process = None
         if self.selected_project and self.selected_project.exists():
             try:
-                meta_path = self.selected_project / "project.json"
-                meta_path.touch(exist_ok=True)
+                (self.selected_project / "project.json").touch(exist_ok=True)
             except Exception:
                 pass
-        self.selected_project = None
+        old_window = self.filming_window
+        self.filming_window = None
         self.refresh_gallery()
         self.showFullScreen()
         self.raise_()
+        self.activateWindow()
         self.stack.setCurrentWidget(self.gallery_page)
+        if old_window is not None:
+            QTimer.singleShot(250, old_window.deleteLater)
+
+    def retry_selected_project(self):
+        if self.selected_project and self.selected_project.exists():
+            self.launch_project(self.selected_project)
+        else:
+            self.open_gallery()
 
     def watch_selected_project(self):
         p = self.selected_project_path()
@@ -507,7 +724,8 @@ class StudioHome(QWidget):
         try:
             subprocess.Popen(["xdg-open", str(movie)])
         except Exception as exc:
-            QMessageBox.warning(self, "Could not open movie", str(exc))
+            self.error_message.setText(f"Could not open this movie.\n\n{exc}")
+            self.stack.setCurrentWidget(self.error_page)
 
 
 if __name__ == "__main__":
