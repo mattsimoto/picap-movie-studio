@@ -4,7 +4,7 @@ import sys
 import time
 
 from PyQt5.QtCore import QProcess, QTimer
-from PyQt5.QtWidgets import QApplication, QHBoxLayout, QPushButton
+from PyQt5.QtWidgets import QApplication, QPushButton
 from libcamera import controls
 
 from app import PiCapStageFour, FPS_OPTIONS
@@ -57,13 +57,10 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.focus_lock_button.setStyleSheet(focus_style)
         self.focus_lock_button.clicked.connect(self.toggle_focus_lock)
 
-        focus_row = QHBoxLayout()
-        focus_row.setSpacing(5)
-        focus_row.addWidget(self.autofocus_button, 1)
-        focus_row.addWidget(self.focus_lock_button, 1)
-
-        # Insert directly above MAKE MOVIE without rebuilding the Stage 4 layout.
-        self.layout().insertLayout(4, focus_row)
+        # The base filming screen reserves two full-width controls in its
+        # right-side rail, leaving the left-hand camera preview unobstructed.
+        self.focus_layout.addWidget(self.autofocus_button)
+        self.focus_layout.addWidget(self.focus_lock_button)
 
         self.focus_supported = "AfMode" in self.picam2.camera_controls
         if not self.focus_supported:
