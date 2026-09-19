@@ -33,10 +33,17 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.focus_timer.timeout.connect(self.check_autofocus)
 
         focus_style = (
-            "QPushButton { background: #35506b; color: white; border: 2px solid #587a99; "
+            "QPushButton { background: #B7DEFF; color: #14233E; border: 2px solid #73B3F5; "
             "border-radius: 9px; font-size: 14px; font-weight: 800; padding: 3px; }"
-            "QPushButton:pressed { background: #496b89; }"
-            "QPushButton:disabled { background: #2a3038; color: #777; border-color: #3b424c; }"
+            "QPushButton:pressed { background: #85C7FF; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; border-color: #CBD8EA; }"
+        )
+        self.focus_style = focus_style
+        self.focus_locked_style = (
+            "QPushButton { background: #FFCA45; color: #14233E; border: 2px solid #E5AD28;"
+            "border-radius: 9px; font-size: 14px; font-weight: 800; padding: 3px; }"
+            "QPushButton:pressed { background: #E5AD28; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; border-color: #CBD8EA; }"
         )
 
         self.autofocus_button = QPushButton("AUTOFOCUS ONCE")
@@ -86,6 +93,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         try:
             self.focus_locked = False
             self.focus_lock_button.setText("LOCK FOCUS")
+            self.focus_lock_button.setStyleSheet(self.focus_style)
             self.autofocus_button.setText("FOCUSING...")
             self.autofocus_button.setEnabled(False)
             self.focus_timeout_ticks = 0
@@ -149,11 +157,13 @@ class PiCapStageFourMJPEG(PiCapStageFour):
                 })
                 self.focus_locked = True
                 self.focus_lock_button.setText("FOCUS LOCKED")
+                self.focus_lock_button.setStyleSheet(self.focus_locked_style)
                 self.status.setText("Focus locked for animation")
             else:
                 self.picam2.set_controls({"AfMode": controls.AfModeEnum.Continuous})
                 self.focus_locked = False
                 self.focus_lock_button.setText("LOCK FOCUS")
+                self.focus_lock_button.setStyleSheet(self.focus_style)
                 self.status.setText("Continuous autofocus on")
             QTimer.singleShot(1800, self.reset_status)
         except Exception as exc:
