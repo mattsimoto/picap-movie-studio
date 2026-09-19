@@ -43,7 +43,7 @@ class PiCapStageFour(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PiCap Movie Studio")
-        self.setStyleSheet("background: #161922; color: white;")
+        self.setStyleSheet("background: #F1F7FF; color: #14233E;")
 
         self.pending_filename = None
         self.pending_frame_number = None
@@ -95,19 +95,26 @@ class PiCapStageFour(QWidget):
         self.frame_label = QLabel()
         self.frame_label.setAlignment(Qt.AlignCenter)
         self.frame_label.setFixedHeight(25)
-        self.frame_label.setStyleSheet("font-size: 19px; font-weight: 800;")
+        self.frame_label.setStyleSheet("font-size: 19px; font-weight: 800; color: #14233E;")
         self.update_frame_label()
 
         self.status = QLabel("Ready")
         self.status.setAlignment(Qt.AlignCenter)
         self.status.setFixedHeight(18)
-        self.status.setStyleSheet("font-size: 12px; font-weight: 600; color: #d8dbe5;")
+        self.status.setStyleSheet("font-size: 12px; font-weight: 700; color: #34527B;")
 
         tool_style = (
-            "QPushButton { background: #343947; color: white; border: 2px solid #596174; "
+            "QPushButton { background: #DCEAFF; color: #14233E; border: 2px solid #9EC3F6; "
             "border-radius: 10px; font-size: 14px; font-weight: 800; padding: 4px; }"
-            "QPushButton:pressed { background: #596174; }"
-            "QPushButton:disabled { background: #252832; color: #777; border-color: #333744; }"
+            "QPushButton:pressed { background: #B5D7FF; border-color: #2778F2; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; border-color: #CBD8EA; }"
+        )
+        self.tool_style = tool_style
+        self.active_tool_style = (
+            "QPushButton { background: #FFCA45; color: #14233E; border: 2px solid #E5AD28;"
+            "border-radius: 10px; font-size: 14px; font-weight: 800; padding: 4px; }"
+            "QPushButton:pressed { background: #E5AD28; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; border-color: #CBD8EA; }"
         )
 
         self.onion_button = QPushButton("ONION OFF")
@@ -140,39 +147,39 @@ class PiCapStageFour(QWidget):
         self.render_button = QPushButton("MAKE MOVIE")
         self.render_button.setFixedHeight(48)
         self.render_button.setStyleSheet(
-            "QPushButton { background: #527a55; color: white; border: none; border-radius: 11px;"
+            "QPushButton { background: #20BD87; color: #14233E; border: none; border-radius: 11px;"
             "font-size: 18px; font-weight: 800; padding: 5px; }"
-            "QPushButton:pressed { background: #3f6042; }"
-            "QPushButton:disabled { background: #354737; color: #999; }"
+            "QPushButton:pressed { background: #10A571; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; }"
         )
         self.render_button.clicked.connect(self.render_movie)
 
         self.capture_button = QPushButton("TAKE PICTURE")
         self.capture_button.setFixedHeight(58)
         self.capture_button.setStyleSheet(
-            "QPushButton { background: #f2b84b; color: #111; border: none; border-radius: 12px;"
+            "QPushButton { background: #FFCA45; color: #14233E; border: none; border-radius: 12px;"
             "font-size: 21px; font-weight: 800; padding: 5px; }"
-            "QPushButton:pressed { background: #d99d2f; }"
-            "QPushButton:disabled { background: #8a7a58; color: #ddd; }"
+            "QPushButton:pressed { background: #E5AD28; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; }"
         )
         self.capture_button.clicked.connect(self.capture_photo)
 
         self.oops_button = QPushButton("OOPS")
         self.oops_button.setFixedHeight(58)
         self.oops_button.setStyleSheet(
-            "QPushButton { background: #9b3d48; color: white; border: none; border-radius: 12px;"
+            "QPushButton { background: #E95370; color: white; border: none; border-radius: 12px;"
             "font-size: 18px; font-weight: 800; padding: 5px; }"
-            "QPushButton:pressed { background: #7d3039; }"
-            "QPushButton:disabled { background: #50373b; color: #aaa; }"
+            "QPushButton:pressed { background: #C63855; }"
+            "QPushButton:disabled { background: #E9EFF8; color: #74849A; }"
         )
         self.oops_button.clicked.connect(self.delete_last_frame)
 
         self.exit_button = QPushButton("EXIT")
         self.exit_button.setFixedHeight(58)
         self.exit_button.setStyleSheet(
-            "QPushButton { background: #343947; color: white; border: none; border-radius: 12px;"
+            "QPushButton { background: #2778F2; color: white; border: none; border-radius: 12px;"
             "font-size: 17px; font-weight: 700; padding: 5px; }"
-            "QPushButton:pressed { background: #242833; }"
+            "QPushButton:pressed { background: #1555C4; }"
         )
         self.exit_button.clicked.connect(self.begin_shutdown)
 
@@ -308,6 +315,7 @@ class PiCapStageFour(QWidget):
     def toggle_onion(self):
         self.onion_enabled = not self.onion_enabled
         self.onion_button.setText("ONION ON" if self.onion_enabled else "ONION OFF")
+        self.onion_button.setStyleSheet(self.active_tool_style if self.onion_enabled else self.tool_style)
         self.refresh_onion_overlay()
 
     def cycle_onion_strength(self):
@@ -357,6 +365,7 @@ class PiCapStageFour(QWidget):
         self.playback_view.show()
         self.playback_view.raise_()
         self.play_button.setText("STOP")
+        self.play_button.setStyleSheet(self.active_tool_style)
         self.status.setText("Playing...")
         self.refresh_buttons()
         self.show_playback_frame()
@@ -385,6 +394,7 @@ class PiCapStageFour(QWidget):
         self.playing = False
         self.playback_view.hide()
         self.play_button.setText("PLAY")
+        self.play_button.setStyleSheet(self.tool_style)
         self.status.setText("Ready")
         self.refresh_onion_overlay()
         self.refresh_buttons()
