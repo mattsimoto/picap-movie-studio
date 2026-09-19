@@ -3,7 +3,7 @@ from pathlib import Path
 import json
 import re
 import shutil
-import subprocess
+import struct
 import sys
 from datetime import datetime
 
@@ -70,6 +70,23 @@ def frame_count(project_dir: Path) -> int:
 
 def movie_path(project_dir: Path) -> Path:
     return project_dir / "movie.avi"
+
+
+def playback_fps(project_dir: Path) -> int:
+    """Use the exported AVI's timing when present; older drafts default to 10 fps."""
+    avi = movie_path(project_dir)
+    if avi.exists():
+        try:
+            with avi.open("rb") as movie:
+                header = movie.read(4096)
+            pos = header.find(b"strh")
+            if pos >= 0 and pos + 36 <= len(header):
+                scale, rate = struct.unpack_from("<II", header, pos + 28)
+                if scale and 1 <= rate / scale <= 30:
+                    return round(rate / scale)
+        except (OSError, ValueError, struct.error, ZeroDivisionError):
+            pass
+    return 10
 
 
 def project_thumbnail(project_dir: Path):
@@ -301,6 +318,7 @@ class GalleryMoviePlayer(QWidget):
             return False
         self.position = 0
         self.finished = False
+        self.fps = playback_fps(project_dir)
         self.title_label.setText(project_meta(project_dir).get("name", project_dir.name))
         self.display_frame()
         return True
@@ -320,7 +338,7 @@ class GalleryMoviePlayer(QWidget):
             self.screen.setText("This picture could not be opened.")
         else:
             self.screen.setPixmap(QPixmap.fromImage(image))
-        self.frame_label.setText(f"PICTURE {self.position + 1} / {len(self.frames)}")
+        self.frame_label.setText(f"PICTURE {self.position + 1} / {len(self.frames)}  •  {self.fps} FPS")
 
     def start(self):
         if not self.frames:
