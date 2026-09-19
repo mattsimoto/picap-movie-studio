@@ -141,14 +141,14 @@ class TouchKeyboard(QWidget):
         grid.setVerticalSpacing(4)
 
         key_style = (
-            "QPushButton{background:#343947;color:white;border:1px solid #596174;"
-            "border-radius:7px;font-size:17px;font-weight:800;padding:2px;}"
-            "QPushButton:pressed{background:#596174;}"
+            "QPushButton{background:#FFFFFF;color:#14233E;border:2px solid #A6C7F4;"
+            "border-radius:7px;font-size:18px;font-weight:800;padding:2px;}"
+            "QPushButton:pressed{background:#BFDCFF;border-color:#2876E8;}"
         )
         wide_style = (
-            "QPushButton{background:#35506b;color:white;border:1px solid #587a99;"
+            "QPushButton{background:#2778F2;color:#FFFFFF;border:2px solid #2778F2;"
             "border-radius:7px;font-size:15px;font-weight:800;padding:2px;}"
-            "QPushButton:pressed{background:#496b89;}"
+            "QPushButton:pressed{background:#164EAD;}"
         )
 
         rows = [
@@ -234,7 +234,7 @@ class StudioHome(QWidget):
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PiCap Movie Studio")
-        self.setStyleSheet("background:#161922;color:white;")
+        self.setStyleSheet("background:#F1F7FF;color:#14233E;")
 
         self.selected_project = None
         self.filming_window = None
@@ -268,25 +268,38 @@ class StudioHome(QWidget):
         QApplication.processEvents()
         QTimer.singleShot(50, self.refresh_gallery)
 
-    def big_button(self, text, color="#343947"):
+    def button_colors(self, color):
+        # Keep text readable on both bright and pale button backgrounds.
+        palette = {
+            "#FFCA45": ("#14233E", "#E5AD28"),
+            "#2778F2": ("#FFFFFF", "#1555C4"),
+            "#20BD87": ("#14233E", "#10A571"),
+            "#E95370": ("#FFFFFF", "#C63855"),
+            "#DCEAFF": ("#14233E", "#BBD6FB"),
+        }
+        return palette.get(color, ("#14233E", "#BBD6FB"))
+
+    def big_button(self, text, color="#DCEAFF"):
+        ink, pressed = self.button_colors(color)
         b = QPushButton(text)
         b.setMinimumHeight(68)
         b.setStyleSheet(
-            f"QPushButton{{background:{color};color:white;border:none;border-radius:14px;"
-            "font-size:23px;font-weight:800;padding:8px;}"
-            "QPushButton:pressed{background:#596174;}"
-            "QPushButton:disabled{background:#252832;color:#777;}"
+            f"QPushButton{{background:{color};color:{ink};border:2px solid {color};"
+            "border-radius:14px;font-size:23px;font-weight:800;padding:8px;}"
+            f"QPushButton:pressed{{background:{pressed};}}"
+            "QPushButton:disabled{background:#E9EFF8;color:#78869A;border-color:#CAD5E3;}"
         )
         return b
 
-    def small_button(self, text, color="#343947"):
+    def small_button(self, text, color="#DCEAFF"):
+        ink, pressed = self.button_colors(color)
         b = QPushButton(text)
         b.setMinimumHeight(54)
         b.setStyleSheet(
-            f"QPushButton{{background:{color};color:white;border:2px solid #596174;border-radius:12px;"
-            "font-size:16px;font-weight:800;padding:6px;}"
-            "QPushButton:pressed{background:#596174;}"
-            "QPushButton:disabled{background:#252832;color:#777;border-color:#333744;}"
+            f"QPushButton{{background:{color};color:{ink};border:2px solid {color};"
+            "border-radius:12px;font-size:16px;font-weight:800;padding:6px;}"
+            f"QPushButton:pressed{{background:{pressed};}}"
+            "QPushButton:disabled{background:#E9EFF8;color:#78869A;border-color:#CAD5E3;}"
         )
         return b
 
@@ -298,13 +311,13 @@ class StudioHome(QWidget):
         title.setStyleSheet("font-size:32px;font-weight:900;padding:10px;")
         subtitle = QLabel("Make a new movie or keep working on an old one")
         subtitle.setAlignment(Qt.AlignCenter)
-        subtitle.setStyleSheet("font-size:16px;color:#d8dbe5;padding-bottom:12px;")
+        subtitle.setStyleSheet("font-size:16px;color:#34527B;padding-bottom:12px;")
 
-        new_btn = self.big_button("NEW MOVIE", "#527a55")
+        new_btn = self.big_button("NEW MOVIE", "#FFCA45")
         new_btn.clicked.connect(self.start_new_title)
-        gallery_btn = self.big_button("MY MOVIES", "#35506b")
+        gallery_btn = self.big_button("MY MOVIES", "#2778F2")
         gallery_btn.clicked.connect(self.open_gallery)
-        exit_btn = self.big_button("EXIT", "#703c45")
+        exit_btn = self.big_button("EXIT", "#DCEAFF")
         exit_btn.clicked.connect(self.close)
 
         layout.addWidget(title)
@@ -330,7 +343,7 @@ class StudioHome(QWidget):
         self.title_input.setPlaceholderText("Movie title")
         self.title_input.setFixedHeight(48)
         self.title_input.setStyleSheet(
-            "QLineEdit{background:white;color:#111;border-radius:9px;font-size:21px;padding:6px;}"
+            "QLineEdit{background:#FFFFFF;color:#14233E;border:2px solid #78AAEE;border-radius:9px;font-size:21px;padding:6px;}"
         )
 
         keyboard = TouchKeyboard(lambda: self.title_input)
@@ -338,7 +351,7 @@ class StudioHome(QWidget):
         actions = QHBoxLayout()
         actions.setSpacing(8)
         actions.setContentsMargins(0, 4, 0, 8)
-        self.title_action_btn = self.small_button("START FILMING", "#527a55")
+        self.title_action_btn = self.small_button("START FILMING", "#FFCA45")
         self.title_action_btn.setMinimumHeight(64)
         self.title_action_btn.clicked.connect(self.commit_title_edit)
         back_btn = self.small_button("BACK")
@@ -361,17 +374,17 @@ class StudioHome(QWidget):
 
         self.loading_title = QLabel("GETTING THE CAMERA READY")
         self.loading_title.setAlignment(Qt.AlignCenter)
-        self.loading_title.setStyleSheet("font-size:30px;font-weight:900;color:white;")
+        self.loading_title.setStyleSheet("font-size:30px;font-weight:900;color:#14233E;")
         self.loading_project = QLabel("")
         self.loading_project.setAlignment(Qt.AlignCenter)
-        self.loading_project.setStyleSheet("font-size:20px;font-weight:700;color:#f2b84b;padding:12px;")
+        self.loading_project.setStyleSheet("font-size:20px;font-weight:700;color:#A85000;padding:12px;")
         self.loading_message = QLabel("Setting up your movie...")
         self.loading_message.setAlignment(Qt.AlignCenter)
-        self.loading_message.setStyleSheet("font-size:18px;color:#d8dbe5;padding:8px;")
+        self.loading_message.setStyleSheet("font-size:18px;color:#34527B;padding:8px;")
         hint = QLabel("The camera can take a few seconds to wake up. Please wait here.")
         hint.setWordWrap(True)
         hint.setAlignment(Qt.AlignCenter)
-        hint.setStyleSheet("font-size:14px;color:#9da5b4;padding:8px;")
+        hint.setStyleSheet("font-size:14px;color:#4C6584;padding:8px;")
 
         layout.addWidget(self.loading_title)
         layout.addWidget(self.loading_project)
@@ -386,12 +399,12 @@ class StudioHome(QWidget):
         layout.addStretch(1)
         title = QLabel("THE CAMERA NEEDS HELP")
         title.setAlignment(Qt.AlignCenter)
-        title.setStyleSheet("font-size:28px;font-weight:900;color:#f2b84b;")
+        title.setStyleSheet("font-size:28px;font-weight:900;color:#BF3450;")
         self.error_message = QLabel("PiCap could not start the camera.")
         self.error_message.setWordWrap(True)
         self.error_message.setAlignment(Qt.AlignCenter)
-        self.error_message.setStyleSheet("font-size:16px;color:#d8dbe5;padding:14px;")
-        retry_btn = self.big_button("TRY AGAIN", "#527a55")
+        self.error_message.setStyleSheet("font-size:16px;color:#34527B;padding:14px;")
+        retry_btn = self.big_button("TRY AGAIN", "#FFCA45")
         retry_btn.clicked.connect(self.retry_selected_project)
         gallery_btn = self.small_button("BACK TO MY MOVIES")
         gallery_btn.clicked.connect(self.open_gallery)
@@ -422,20 +435,20 @@ class StudioHome(QWidget):
         self.project_list.setGridSize(QSize(235, 168))
         self.project_list.setSpacing(5)
         self.project_list.setStyleSheet(
-            "QListWidget{background:#202530;color:white;border:2px solid #3b4352;border-radius:10px;"
+            "QListWidget{background:#FFFFFF;color:#14233E;border:2px solid #A6C7F4;border-radius:10px;"
             "font-size:15px;padding:5px;}"
-            "QListWidget::item{background:#292f3b;border:2px solid #3b4352;border-radius:10px;"
+            "QListWidget::item{background:#E4F0FF;color:#14233E;border:2px solid #B5CFF0;border-radius:10px;"
             "padding:6px;margin:2px;}"
-            "QListWidget::item:selected{background:#35506b;border:2px solid #74a0c8;}"
+            "QListWidget::item:selected{background:#B7D7FF;color:#14233E;border:3px solid #2778F2;}"
         )
         self.project_list.itemSelectionChanged.connect(self.gallery_selection_changed)
         self.project_list.itemDoubleClicked.connect(lambda _item: self.open_selected_project())
 
         primary = QHBoxLayout()
         primary.setSpacing(5)
-        self.open_btn = self.small_button("OPEN & ADD SCENES", "#35506b")
+        self.open_btn = self.small_button("OPEN & ADD SCENES", "#2778F2")
         self.open_btn.clicked.connect(self.open_selected_project)
-        self.watch_btn = self.small_button("WATCH", "#527a55")
+        self.watch_btn = self.small_button("WATCH", "#20BD87")
         self.watch_btn.clicked.connect(self.watch_selected_project)
         back_btn = self.small_button("BACK")
         back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.home_page))
@@ -449,7 +462,7 @@ class StudioHome(QWidget):
         self.rename_btn.clicked.connect(self.rename_selected_project)
         self.duplicate_btn = self.small_button("DUPLICATE")
         self.duplicate_btn.clicked.connect(self.duplicate_selected_project)
-        self.delete_btn = self.small_button("DELETE", "#703c45")
+        self.delete_btn = self.small_button("DELETE", "#E95370")
         self.delete_btn.clicked.connect(self.delete_selected_project)
         manage.addWidget(self.rename_btn, 1)
         manage.addWidget(self.duplicate_btn, 1)
