@@ -28,10 +28,10 @@ FRAME_PATTERN = re.compile(r"^frame(\d{4})\.jpg$")
 FPS_OPTIONS = [6, 10, 15]
 ONION_LEVELS = [("LOW", 0.22), ("MED", 0.38), ("HIGH", 0.55)]
 
-# The camera is now mounted 180 degrees around from its earlier position.
-# The old software 180-degree correction would invert the newly rotated camera.
-# Set to True if you return to the original camera mounting orientation.
-CAMERA_FLIP_180 = False
+# The camera hangs from the top of the stop-motion shroud.
+# Apply the verified 180-degree correction to the live view and new captures.
+# If the camera is remounted upright, change this to False.
+CAMERA_FLIP_180 = True
 SHUTTER_GPIO = 17  # Physical pin 11; other switch leg connects to ground (pin 9).
 
 
