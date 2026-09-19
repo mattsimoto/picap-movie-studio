@@ -118,12 +118,17 @@ def point_working_link(project_dir: Path):
 
 
 class FilmingWindow(PiCapStageFourMJPEG):
-    """Camera window that tells the studio launcher when filming is closed."""
+    """Camera window that returns to the gallery only after releasing hardware."""
 
     studio_closed = pyqtSignal()
 
-    def closeEvent(self, event):
-        super().closeEvent(event)
+    def __init__(self, project_dir):
+        super().__init__(project_dir=project_dir)
+
+    def finish_camera_close(self):
+        # Base closeEvent schedules this after stopping Qt preview/capture.
+        # Do not open a second Picamera2 until the first has been closed.
+        super().finish_camera_close()
         self.studio_closed.emit()
 
 
@@ -689,10 +694,10 @@ class StudioHome(QWidget):
         QTimer.singleShot(120, self.open_filming_window)
 
     def open_filming_window(self):
-        if not self.selected_project:
+        if not self.selected_project or self.filming_window is not None:
             return
         try:
-            self.filming_window = FilmingWindow()
+            self.filming_window = FilmingWindow(self.selected_project)
             self.filming_window.studio_closed.connect(self.filming_closed)
             self.filming_window.showFullScreen()
             self.filming_window.raise_()
@@ -723,7 +728,7 @@ class StudioHome(QWidget):
         self.activateWindow()
         self.stack.setCurrentWidget(self.gallery_page)
         if old_window is not None:
-            QTimer.singleShot(250, old_window.deleteLater)
+            QTimer.singleShot(0, old_window.deleteLater)
 
     def retry_selected_project(self):
         if self.selected_project and self.selected_project.exists():
