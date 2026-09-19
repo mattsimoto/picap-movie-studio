@@ -425,7 +425,7 @@ class StudioHome(QWidget):
         self.stack.addWidget(self.error_page)
         self.stack.addWidget(self.player_page)
         self.exporter.status_changed.connect(self.set_drive_status)
-        self.exporter.upload_complete.connect(self.refresh_gallery)
+        self.exporter.upload_complete.connect(lambda _project: self.refresh_gallery())
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 14)
