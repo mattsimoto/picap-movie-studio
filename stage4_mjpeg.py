@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 from pathlib import Path
 import sys
+import time
 
 from PyQt5.QtCore import QProcess, QTimer
 from PyQt5.QtWidgets import QApplication, QHBoxLayout, QPushButton
@@ -21,6 +22,12 @@ class PiCapStageFourMJPEG(PiCapStageFour):
 
         self.focus_locked = False
         self.focus_timeout_ticks = 0
+        self.focus_started_at = 0.0
+        self.latest_camera_metadata = {}
+        self.latest_metadata_time = 0.0
+        # Do not call synchronous capture_metadata() from the Qt GUI thread.
+        # Picamera2's preview callback supplies metadata without waiting for a frame.
+        self.picam2.post_callback = self.cache_camera_metadata
         self.focus_timer = QTimer(self)
         self.focus_timer.setInterval(150)
         self.focus_timer.timeout.connect(self.check_autofocus)
@@ -65,6 +72,14 @@ class PiCapStageFourMJPEG(PiCapStageFour):
             except Exception as exc:
                 self.status.setText(f"Focus setup error: {exc}")
 
+    def cache_camera_metadata(self, request):
+        """Cache metadata from a frame that the preview is already processing."""
+        try:
+            self.latest_camera_metadata = request.get_metadata()
+            self.latest_metadata_time = time.monotonic()
+        except Exception:
+            pass
+
     def autofocus_once(self):
         if not self.focus_supported or self.rendering or self.playing or self.shutting_down:
             return
@@ -75,6 +90,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
             self.autofocus_button.setEnabled(False)
             self.focus_timeout_ticks = 0
             self.status.setText("Finding focus...")
+            self.focus_started_at = time.monotonic()
             self.picam2.set_controls({"AfMode": controls.AfModeEnum.Auto})
             self.picam2.set_controls({"AfTrigger": controls.AfTriggerEnum.Start})
             self.focus_timer.start()
@@ -86,7 +102,9 @@ class PiCapStageFourMJPEG(PiCapStageFour):
     def check_autofocus(self):
         self.focus_timeout_ticks += 1
         try:
-            metadata = self.picam2.capture_metadata()
+            # Reading cached metadata never blocks the Qt event loop.
+            # Ignore the previous autofocus state from before the new cycle.
+            metadata = self.latest_camera_metadata if self.latest_metadata_time > self.focus_started_at else {}
             af_state = metadata.get("AfState")
             # libcamera states: Idle, Scanning, Focused, Failed.
             if af_state == controls.AfStateEnum.Focused:
@@ -120,8 +138,8 @@ class PiCapStageFourMJPEG(PiCapStageFour):
             return
         try:
             if not self.focus_locked:
-                metadata = self.picam2.capture_metadata()
-                lens_position = metadata.get("LensPosition")
+                # Read the latest preview-frame metadata without waiting for a new frame.
+                lens_position = self.latest_camera_metadata.get("LensPosition")
                 if lens_position is None:
                     self.status.setText("Lens position unavailable")
                     return
@@ -207,6 +225,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
 
     def closeEvent(self, event):
         self.focus_timer.stop()
+        self.picam2.post_callback = None
         super().closeEvent(event)
 
 
