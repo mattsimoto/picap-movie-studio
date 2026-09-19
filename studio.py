@@ -27,6 +27,7 @@ from PyQt5.QtWidgets import (
 )
 
 from stage4_mjpeg import PiCapStageFourMJPEG
+from drive_export import DriveExporter, drive_folder, save_drive_folder, video_for_project
 
 BASE_DIR = Path.home() / "PiCapMovies"
 PROJECTS_DIR = BASE_DIR / "projects"
@@ -136,12 +137,19 @@ def point_working_link(project_dir: Path):
 
 
 class FilmingWindow(PiCapStageFourMJPEG):
-    """Camera window that returns to the gallery only after releasing hardware."""
+    """Camera window that returns to gallery and signals a finished render."""
 
     studio_closed = pyqtSignal()
+    movie_ready = pyqtSignal(object)
 
     def __init__(self, project_dir):
         super().__init__(project_dir=project_dir)
+
+    def render_finished(self, code, status):
+        super().render_finished(code, status)
+        if code == 0 and self.avi_path.is_file() and self.avi_path.stat().st_size > 0:
+            self.movie_ready.emit(self.project_dir)
+            self.status.setText("Movie saved! Sending to Drive...")
 
     def finish_camera_close(self):
         # Base closeEvent schedules this after stopping Qt preview/capture.
@@ -400,6 +408,7 @@ class StudioHome(QWidget):
         self.loading_tick = 0
         self.title_mode = "new"
         self.rename_target = None
+        self.exporter = DriveExporter(self)
 
         self.stack = QStackedWidget()
         self.home_page = self.build_home_page()
@@ -415,6 +424,8 @@ class StudioHome(QWidget):
         self.stack.addWidget(self.loading_page)
         self.stack.addWidget(self.error_page)
         self.stack.addWidget(self.player_page)
+        self.exporter.status_changed.connect(self.set_drive_status)
+        self.exporter.upload_complete.connect(self.refresh_gallery)
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 14)
@@ -630,10 +641,27 @@ class StudioHome(QWidget):
         manage.addWidget(self.duplicate_btn, 1)
         manage.addWidget(self.delete_btn, 1)
 
+        export_actions = QHBoxLayout()
+        export_actions.setSpacing(5)
+        self.export_btn = self.small_button("EXPORT TO DRIVE", "#20BD87")
+        self.export_btn.clicked.connect(self.export_selected_project)
+        folder_btn = self.small_button("DRIVE FOLDER")
+        folder_btn.clicked.connect(self.edit_drive_folder)
+        export_actions.addWidget(self.export_btn, 2)
+        export_actions.addWidget(folder_btn, 1)
+
+        self.drive_status = QLabel("Drive: Finished movies upload to " + drive_folder())
+        self.drive_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.drive_status.setFixedHeight(23)
+        self.drive_status.setStyleSheet("font-size:12px;font-weight:700;color:#34527B;")
+        self.drive_status.setToolTip("Set up the rclone remote picapdrive once to enable uploads.")
+
         layout.addWidget(title)
         layout.addWidget(self.project_list, 1)
         layout.addLayout(primary)
         layout.addLayout(manage)
+        layout.addLayout(export_actions)
+        layout.addWidget(self.drive_status)
         return w
 
     def start_new_title(self):
@@ -646,12 +674,21 @@ class StudioHome(QWidget):
         self.title_input.setFocus()
 
     def cancel_title_edit(self):
-        if self.title_mode == "rename":
+        if self.title_mode in ("rename", "drive"):
             self.open_gallery()
         else:
             self.stack.setCurrentWidget(self.home_page)
 
     def commit_title_edit(self):
+        if self.title_mode == "drive":
+            try:
+                save_drive_folder(self.title_input.text())
+            except ValueError:
+                self.title_heading.setText("USE ONE FOLDER NAME")
+                return
+            self.set_drive_status("Drive folder: " + drive_folder())
+            self.open_gallery()
+            return
         name = self.title_input.text().strip()
         if not name:
             name = f"Movie {datetime.now().strftime('%b %d %H-%M')}"
@@ -672,6 +709,25 @@ class StudioHome(QWidget):
         self.player_page.stop()
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
+
+    def set_drive_status(self, message):
+        self.drive_status.setText(message)
+        self.drive_status.setToolTip(message)
+
+    def export_selected_project(self):
+        project = self.selected_project_path()
+        if project:
+            self.exporter.queue_project(project)
+
+    def edit_drive_folder(self):
+        self.title_mode = "drive"
+        self.rename_target = None
+        self.title_heading.setText("GOOGLE DRIVE FOLDER")
+        self.title_action_btn.setText("SAVE FOLDER")
+        self.title_input.setText(drive_folder())
+        self.title_input.selectAll()
+        self.stack.setCurrentWidget(self.title_page)
+        self.title_input.setFocus()
 
     def make_thumbnail_icon(self, project_dir: Path):
         thumb_path = project_thumbnail(project_dir)
@@ -720,6 +776,7 @@ class StudioHome(QWidget):
         self.duplicate_btn.setEnabled(has)
         self.delete_btn.setEnabled(has)
         self.watch_btn.setEnabled(bool(p and frame_count(p) > 0))
+        self.export_btn.setEnabled(bool(p and video_for_project(p)))
 
     def open_selected_project(self):
         p = self.selected_project_path()
@@ -857,6 +914,7 @@ class StudioHome(QWidget):
         try:
             self.filming_window = FilmingWindow(self.selected_project)
             self.filming_window.studio_closed.connect(self.filming_closed)
+            self.filming_window.movie_ready.connect(self.exporter.queue_project)
             self.filming_window.showFullScreen()
             self.filming_window.raise_()
             self.filming_window.activateWindow()
