@@ -215,8 +215,10 @@ class PiCapStageFour(QWidget):
         self.focus_layout.setSpacing(4)
 
         controls = QWidget()
+        controls.setObjectName("controlRail")
         controls.setFixedWidth(188)
-        controls.setStyleSheet("QWidget { background: #E4F0FF; border-radius: 12px; }")
+        # Target the rail only; do not override its colorful child buttons.
+        controls.setStyleSheet("QWidget#controlRail { background: #E4F0FF; border-radius: 12px; }")
         controls_column = QVBoxLayout(controls)
         controls_column.setContentsMargins(5, 5, 5, 5)
         controls_column.setSpacing(5)
