@@ -12,6 +12,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QPushButton,
     QStackedLayout,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -77,8 +78,11 @@ class PiCapStageFour(QWidget):
             self.picam2.close()
             raise
 
-        self.preview = QPicamera2(self.picam2, width=720, height=215, keep_ar=True)
-        self.preview.setMinimumHeight(170)
+        # The camera takes almost the entire left side of the 800x480 screen.
+        # Keep its original aspect ratio: no stretching or cutting off the stage.
+        self.preview = QPicamera2(self.picam2, width=600, height=410, keep_ar=True)
+        self.preview.setMinimumSize(1, 160)
+        self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.preview.done_signal.connect(self.capture_done)
 
         self.onion_overlay = QLabel()
@@ -96,6 +100,7 @@ class PiCapStageFour(QWidget):
         self.playback_view.hide()
 
         self.camera_stack = QWidget()
+        self.camera_stack.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         stack = QStackedLayout(self.camera_stack)
         stack.setStackingMode(QStackedLayout.StackAll)
         stack.setContentsMargins(0, 0, 0, 0)
@@ -104,14 +109,14 @@ class PiCapStageFour(QWidget):
         stack.addWidget(self.playback_view)
 
         self.frame_label = QLabel()
-        self.frame_label.setAlignment(Qt.AlignCenter)
-        self.frame_label.setFixedHeight(25)
+        self.frame_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.frame_label.setFixedHeight(24)
         self.frame_label.setStyleSheet("font-size: 19px; font-weight: 800; color: #14233E;")
         self.update_frame_label()
 
         self.status = QLabel("Ready")
-        self.status.setAlignment(Qt.AlignCenter)
-        self.status.setFixedHeight(18)
+        self.status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        self.status.setFixedHeight(22)
         self.status.setStyleSheet("font-size: 12px; font-weight: 700; color: #34527B;")
 
         tool_style = (
@@ -139,21 +144,19 @@ class PiCapStageFour(QWidget):
         self.strength_button.clicked.connect(self.cycle_onion_strength)
 
         self.fps_button = QPushButton("10 FPS")
-        self.fps_button.setFixedHeight(44)
+        self.fps_button.setFixedHeight(42)
         self.fps_button.setStyleSheet(tool_style)
         self.fps_button.clicked.connect(self.cycle_fps)
 
         self.play_button = QPushButton("PLAY")
-        self.play_button.setFixedHeight(44)
+        self.play_button.setFixedHeight(52)
         self.play_button.setStyleSheet(tool_style)
         self.play_button.clicked.connect(self.toggle_playback)
 
         tools_row = QHBoxLayout()
-        tools_row.setSpacing(5)
+        tools_row.setSpacing(4)
         tools_row.addWidget(self.onion_button, 1)
         tools_row.addWidget(self.strength_button, 1)
-        tools_row.addWidget(self.fps_button, 1)
-        tools_row.addWidget(self.play_button, 1)
 
         self.render_button = QPushButton("MAKE MOVIE")
         self.render_button.setFixedHeight(48)
@@ -166,17 +169,17 @@ class PiCapStageFour(QWidget):
         self.render_button.clicked.connect(self.render_movie)
 
         self.capture_button = QPushButton("TAKE PICTURE")
-        self.capture_button.setFixedHeight(58)
+        self.capture_button.setFixedHeight(74)
         self.capture_button.setStyleSheet(
             "QPushButton { background: #FFCA45; color: #14233E; border: none; border-radius: 12px;"
-            "font-size: 21px; font-weight: 800; padding: 5px; }"
+            "font-size: 18px; font-weight: 800; padding: 4px; }"
             "QPushButton:pressed { background: #E5AD28; }"
             "QPushButton:disabled { background: #E9EFF8; color: #74849A; }"
         )
         self.capture_button.clicked.connect(self.capture_photo)
 
         self.oops_button = QPushButton("OOPS")
-        self.oops_button.setFixedHeight(58)
+        self.oops_button.setFixedHeight(52)
         self.oops_button.setStyleSheet(
             "QPushButton { background: #E95370; color: white; border: none; border-radius: 12px;"
             "font-size: 18px; font-weight: 800; padding: 5px; }"
@@ -186,7 +189,7 @@ class PiCapStageFour(QWidget):
         self.oops_button.clicked.connect(self.delete_last_frame)
 
         self.exit_button = QPushButton("EXIT")
-        self.exit_button.setFixedHeight(58)
+        self.exit_button.setFixedHeight(48)
         self.exit_button.setStyleSheet(
             "QPushButton { background: #2778F2; color: white; border: none; border-radius: 12px;"
             "font-size: 17px; font-weight: 700; padding: 5px; }"
@@ -195,20 +198,42 @@ class PiCapStageFour(QWidget):
         self.exit_button.clicked.connect(self.begin_shutdown)
 
         button_row = QHBoxLayout()
-        button_row.setSpacing(6)
-        button_row.addWidget(self.capture_button, 5)
-        button_row.addWidget(self.oops_button, 2)
-        button_row.addWidget(self.exit_button, 1)
+        button_row.setSpacing(4)
+        button_row.addWidget(self.oops_button, 1)
+        button_row.addWidget(self.play_button, 1)
 
-        layout = QVBoxLayout()
-        layout.setContentsMargins(6, 4, 6, 4)
-        layout.setSpacing(3)
-        layout.addWidget(self.camera_stack, 1)
-        layout.addWidget(self.frame_label)
-        layout.addWidget(self.status)
-        layout.addLayout(tools_row)
-        layout.addWidget(self.render_button)
-        layout.addLayout(button_row)
+        # Keep metadata at the top/bottom of the camera area, so all shooting
+        # controls live in a narrow rail instead of shrinking the picture height.
+        preview_column = QVBoxLayout()
+        preview_column.setContentsMargins(0, 0, 0, 0)
+        preview_column.setSpacing(2)
+        preview_column.addWidget(self.frame_label)
+        preview_column.addWidget(self.camera_stack, 1)
+        preview_column.addWidget(self.status)
+
+        self.focus_layout = QVBoxLayout()
+        self.focus_layout.setSpacing(4)
+
+        controls = QWidget()
+        controls.setFixedWidth(188)
+        controls.setStyleSheet("QWidget { background: #E4F0FF; border-radius: 12px; }")
+        controls_column = QVBoxLayout(controls)
+        controls_column.setContentsMargins(5, 5, 5, 5)
+        controls_column.setSpacing(5)
+        controls_column.addWidget(self.capture_button)
+        controls_column.addLayout(button_row)
+        controls_column.addLayout(tools_row)
+        controls_column.addWidget(self.fps_button)
+        controls_column.addLayout(self.focus_layout)
+        controls_column.addWidget(self.render_button)
+        controls_column.addStretch(1)
+        controls_column.addWidget(self.exit_button)
+
+        layout = QHBoxLayout()
+        layout.setContentsMargins(4, 4, 4, 4)
+        layout.setSpacing(5)
+        layout.addLayout(preview_column, 1)
+        layout.addWidget(controls)
         self.setLayout(layout)
 
         self.playback_timer = QTimer(self)
