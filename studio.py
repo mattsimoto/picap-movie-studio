@@ -8,7 +8,7 @@ import sys
 from datetime import datetime
 
 from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
-from PyQt5.QtGui import QIcon, QPixmap
+from PyQt5.QtGui import QIcon, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
     QGridLayout,
@@ -21,6 +21,7 @@ from PyQt5.QtWidgets import (
     QMessageBox,
     QPushButton,
     QStackedWidget,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -235,6 +236,141 @@ class TouchKeyboard(QWidget):
             target.setFocus()
 
 
+class GalleryMoviePlayer(QWidget):
+    """Play original project JPEGs without depending on AVI/VLC decoding."""
+
+    back_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.frames = []
+        self.position = 0
+        self.fps = 10
+        self.finished = False
+        self.timer = QTimer(self)
+        self.timer.timeout.connect(self.next_frame)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(6, 3, 6, 6)
+        layout.setSpacing(5)
+        self.title_label = QLabel("WATCH MOVIE")
+        self.title_label.setAlignment(Qt.AlignCenter)
+        self.title_label.setFixedHeight(32)
+        self.title_label.setStyleSheet("font-size:23px;font-weight:900;color:#14233E;")
+        self.screen = QLabel("Choose a movie to watch")
+        self.screen.setAlignment(Qt.AlignCenter)
+        self.screen.setMinimumHeight(130)
+        self.screen.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
+        self.screen.setStyleSheet("background:#091526;color:white;border:3px solid #2778F2;border-radius:11px;")
+        self.frame_label = QLabel("")
+        self.frame_label.setAlignment(Qt.AlignCenter)
+        self.frame_label.setFixedHeight(20)
+        self.frame_label.setStyleSheet("font-size:14px;font-weight:700;color:#34527B;")
+
+        actions = QHBoxLayout()
+        actions.setSpacing(6)
+        self.play_btn = QPushButton("PAUSE")
+        self.play_btn.clicked.connect(self.toggle_play)
+        replay_btn = QPushButton("RESTART")
+        replay_btn.clicked.connect(self.restart)
+        back_btn = QPushButton("BACK TO MOVIES")
+        back_btn.clicked.connect(self.go_back)
+        for button, color, ink in (
+            (self.play_btn, "#FFCA45", "#14233E"),
+            (replay_btn, "#20BD87", "#14233E"),
+            (back_btn, "#2778F2", "#FFFFFF"),
+        ):
+            button.setMinimumHeight(50)
+            button.setStyleSheet(
+                f"QPushButton{{background:{color};color:{ink};border:0;"
+                "border-radius:10px;font-size:15px;font-weight:800;padding:5px;}"
+                "QPushButton:pressed{background:#B7D7FF;color:#14233E;}"
+            )
+        actions.addWidget(self.play_btn, 1)
+        actions.addWidget(replay_btn, 1)
+        actions.addWidget(back_btn, 2)
+        layout.addWidget(self.title_label)
+        layout.addWidget(self.screen, 1)
+        layout.addWidget(self.frame_label)
+        layout.addLayout(actions)
+
+    def open_project(self, project_dir):
+        self.stop()
+        self.frames = frame_paths(project_dir)
+        if not self.frames:
+            return False
+        self.position = 0
+        self.finished = False
+        self.title_label.setText(project_meta(project_dir).get("name", project_dir.name))
+        self.display_frame()
+        return True
+
+    def display_frame(self):
+        if not self.frames:
+            return
+        reader = QImageReader(str(self.frames[self.position]))
+        reader.setAutoTransform(True)
+        size = reader.size()
+        target = self.screen.size()
+        if size.isValid() and target.width() > 0 and target.height() > 0:
+            reader.setScaledSize(size.scaled(target, Qt.KeepAspectRatio))
+        image = reader.read()
+        if image.isNull():
+            self.screen.setPixmap(QPixmap())
+            self.screen.setText("This picture could not be opened.")
+        else:
+            self.screen.setPixmap(QPixmap.fromImage(image))
+        self.frame_label.setText(f"PICTURE {self.position + 1} / {len(self.frames)}")
+
+    def start(self):
+        if not self.frames:
+            return
+        if self.finished:
+            self.position = 0
+            self.finished = False
+            self.display_frame()
+        self.timer.start(max(1, round(1000 / self.fps)))
+        self.play_btn.setText("PAUSE")
+
+    def stop(self):
+        self.timer.stop()
+        self.play_btn.setText("PLAY")
+
+    def toggle_play(self):
+        if self.timer.isActive():
+            self.stop()
+        else:
+            self.start()
+
+    def next_frame(self):
+        if not self.frames:
+            self.stop()
+        elif self.position >= len(self.frames) - 1:
+            self.finished = True
+            self.stop()
+            self.play_btn.setText("PLAY AGAIN")
+        else:
+            self.position += 1
+            self.display_frame()
+
+    def restart(self):
+        self.stop()
+        if self.frames:
+            self.position = 0
+            self.finished = False
+            self.display_frame()
+            self.start()
+
+    def go_back(self):
+        self.stop()
+        self.back_requested.emit()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        if self.frames and not self.timer.isActive():
+            QTimer.singleShot(0, self.display_frame)
+
+
 class StudioHome(QWidget):
     def __init__(self):
         super().__init__()
@@ -253,11 +389,14 @@ class StudioHome(QWidget):
         self.title_page = self.build_title_page()
         self.loading_page = self.build_loading_page()
         self.error_page = self.build_error_page()
+        self.player_page = GalleryMoviePlayer()
+        self.player_page.back_requested.connect(self.open_gallery)
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.gallery_page)
         self.stack.addWidget(self.title_page)
         self.stack.addWidget(self.loading_page)
         self.stack.addWidget(self.error_page)
+        self.stack.addWidget(self.player_page)
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 14)
@@ -512,6 +651,7 @@ class StudioHome(QWidget):
         self.launch_project(project_dir)
 
     def open_gallery(self):
+        self.player_page.stop()
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
 
@@ -561,7 +701,7 @@ class StudioHome(QWidget):
         self.rename_btn.setEnabled(has)
         self.duplicate_btn.setEnabled(has)
         self.delete_btn.setEnabled(has)
-        self.watch_btn.setEnabled(bool(p and movie_path(p).exists()))
+        self.watch_btn.setEnabled(bool(p and frame_count(p) > 0))
 
     def open_selected_project(self):
         p = self.selected_project_path()
@@ -740,14 +880,18 @@ class StudioHome(QWidget):
         p = self.selected_project_path()
         if not p:
             return
-        movie = movie_path(p)
-        if not movie.exists():
-            return
-        try:
-            subprocess.Popen(["xdg-open", str(movie)])
-        except Exception as exc:
-            self.error_message.setText(f"Could not open this movie.\n\n{exc}")
+        # Play original frames directly: old AVI movies can freeze on the first
+        # frame in VLC even when the JPGs are intact.
+        if not self.player_page.open_project(p):
+            self.error_message.setText(
+                "This movie has no original pictures to play.\n\n"
+                "Its old AVI file may not work in VLC. The movie folder has not been changed."
+            )
             self.stack.setCurrentWidget(self.error_page)
+            return
+        self.stack.setCurrentWidget(self.player_page)
+        QTimer.singleShot(0, self.player_page.display_frame)
+        QTimer.singleShot(0, self.player_page.start)
 
 
 if __name__ == "__main__":
