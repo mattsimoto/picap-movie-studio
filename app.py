@@ -3,7 +3,7 @@ import re
 import shutil
 import sys
 
-from PyQt5.QtCore import QProcess, QSize, QTimer, Qt
+from PyQt5.QtCore import QProcess, QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -28,8 +28,18 @@ FRAME_PATTERN = re.compile(r"^frame(\d{4})\.jpg$")
 FPS_OPTIONS = [6, 10, 15]
 ONION_LEVELS = [("LOW", 0.22), ("MED", 0.38), ("HIGH", 0.55)]
 
+# The camera is now mounted 180 degrees around from its earlier position.
+# The old software 180-degree correction would invert the newly rotated camera.
+# Set to True if you return to the original camera mounting orientation.
+CAMERA_FLIP_180 = False
+SHUTTER_GPIO = 17  # Physical pin 11; other switch leg connects to ground (pin 9).
+
 
 class PiCapStageFour(QWidget):
+    # gpiozero runs button callbacks outside Qt's GUI thread. A Qt signal safely
+    # schedules capture_photo() back on the GUI thread used by the camera widget.
+    shutter_requested = pyqtSignal()
+
     def __init__(self):
         super().__init__()
         self.setWindowTitle("PiCap Movie Studio")
@@ -46,11 +56,13 @@ class PiCapStageFour(QWidget):
         self.fps_index = 1
         self.rendering = False
         self.render_process = None
+        self.hardware_button = None
+        self.shutter_requested.connect(self.capture_photo)
 
         self.picam2 = Picamera2()
         config = self.picam2.create_preview_configuration(
             main={"size": (1280, 720), "format": "RGB888"},
-            transform=Transform(hflip=1, vflip=1),
+            transform=Transform(hflip=int(CAMERA_FLIP_180), vflip=int(CAMERA_FLIP_180)),
         )
         self.picam2.configure(config)
 
@@ -187,7 +199,23 @@ class PiCapStageFour(QWidget):
         self.refresh_buttons()
         self.picam2.start()
         self.showFullScreen()
+        QTimer.singleShot(0, self.enable_hardware_shutter)
         QTimer.singleShot(250, self.refresh_onion_overlay)
+
+    def enable_hardware_shutter(self):
+        """Enable the active-low GPIO17 shutter; touchscreen remains available."""
+        if self.shutting_down or self.hardware_button is not None:
+            return
+        try:
+            from gpiozero import Button
+
+            self.hardware_button = Button(
+                SHUTTER_GPIO, pull_up=True, bounce_time=0.20
+            )
+            self.hardware_button.when_pressed = self.shutter_requested.emit
+        except Exception as exc:
+            self.hardware_button = None
+            self.status.setText(f"Shutter button unavailable: {exc}")
 
     def find_last_frame_number(self):
         highest = 0
@@ -454,6 +482,13 @@ class PiCapStageFour(QWidget):
 
     def closeEvent(self, event):
         self.shutting_down = True
+        if self.hardware_button is not None:
+            try:
+                self.hardware_button.when_pressed = None
+                self.hardware_button.close()
+            except Exception:
+                pass
+            self.hardware_button = None
         self.playback_timer.stop()
         if self.render_process is not None:
             try:
