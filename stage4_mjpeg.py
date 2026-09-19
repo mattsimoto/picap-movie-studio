@@ -17,8 +17,9 @@ RENDERER = Path(__file__).with_name("mjpeg_avi_test.py")
 class PiCapStageFourMJPEG(PiCapStageFour):
     """Stage 4 UI using the pure-Python MJPEG renderer plus Camera Module 3 focus controls."""
 
-    def __init__(self):
-        super().__init__()
+    def __init__(self, project_dir=None):
+        super().__init__(project_dir=project_dir)
+        self.avi_path = self.project_dir / "movie.avi"
 
         self.focus_locked = False
         self.focus_timeout_ticks = 0
@@ -196,10 +197,10 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.render_process.setProcessChannelMode(QProcess.MergedChannels)
         self.render_process.finished.connect(self.render_finished)
         self.render_process.errorOccurred.connect(self.render_error)
-        self.render_process.start(sys.executable, [str(RENDERER), str(fps)])
+        self.render_process.start(sys.executable, [str(RENDERER), str(fps), str(self.project_dir)])
 
     def render_finished(self, exit_code, _exit_status):
-        success = exit_code == 0 and MOVIE_PATH.exists() and MOVIE_PATH.stat().st_size > 0
+        success = exit_code == 0 and self.avi_path.exists() and self.avi_path.stat().st_size > 0
         details = ""
         if self.render_process is not None:
             try:
@@ -212,7 +213,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.render_button.setText("MAKE MOVIE")
 
         if success:
-            size_mb = MOVIE_PATH.stat().st_size / (1024 * 1024)
+            size_mb = self.avi_path.stat().st_size / (1024 * 1024)
             self.status.setText(f"Movie saved! {size_mb:.1f} MB")
         else:
             last_line = details.strip().splitlines()[-1] if details.strip() else "Movie failed"
