@@ -23,7 +23,6 @@ from picamera2.previews.qt import QPicamera2
 PROJECT_DIR = Path.home() / "PiCapMovies" / "stage2-test"
 FRAMES_DIR = PROJECT_DIR / "frames"
 MOVIE_PATH = PROJECT_DIR / "movie.mp4"
-FRAMES_DIR.mkdir(parents=True, exist_ok=True)
 FRAME_PATTERN = re.compile(r"^frame(\d{4})\.jpg$")
 FPS_OPTIONS = [6, 10, 15]
 ONION_LEVELS = [("LOW", 0.22), ("MED", 0.38), ("HIGH", 0.55)]
@@ -40,8 +39,14 @@ class PiCapStageFour(QWidget):
     # schedules capture_photo() back on the GUI thread used by the camera widget.
     shutter_requested = pyqtSignal()
 
-    def __init__(self):
+    def __init__(self, project_dir=None):
         super().__init__()
+        # Bind storage to this filming session. Studio can switch projects without
+        # reloading modules or relying on a symlink that changed after import.
+        self.project_dir = Path(project_dir) if project_dir is not None else PROJECT_DIR
+        self.frames_dir = self.project_dir / "frames"
+        self.movie_path = self.project_dir / "movie.mp4"
+        self.frames_dir.mkdir(parents=True, exist_ok=True)
         self.setWindowTitle("PiCap Movie Studio")
         self.setStyleSheet("background: #F1F7FF; color: #14233E;")
 
@@ -226,14 +231,14 @@ class PiCapStageFour(QWidget):
 
     def find_last_frame_number(self):
         highest = 0
-        for path in FRAMES_DIR.glob("frame*.jpg"):
+        for path in self.frames_dir.glob("frame*.jpg"):
             match = FRAME_PATTERN.match(path.name)
             if match:
                 highest = max(highest, int(match.group(1)))
         return highest
 
     def frame_path(self, number):
-        return FRAMES_DIR / f"frame{number:04d}.jpg"
+        return self.frames_dir / f"frame{number:04d}.jpg"
 
     def update_frame_label(self):
         self.frame_label.setText(f"FRAMES: {self.frame_count}")
@@ -415,7 +420,7 @@ class PiCapStageFour(QWidget):
         self.refresh_buttons()
 
         fps = FPS_OPTIONS[self.fps_index]
-        input_pattern = str(FRAMES_DIR / "frame%04d.jpg")
+        input_pattern = str(self.frames_dir / "frame%04d.jpg")
 
         args = [
             "-y",
@@ -434,7 +439,7 @@ class PiCapStageFour(QWidget):
             "yuv420p",
             "-movflags",
             "+faststart",
-            str(MOVIE_PATH),
+            str(self.movie_path),
         ]
 
         self.render_process = QProcess(self)
@@ -443,7 +448,7 @@ class PiCapStageFour(QWidget):
         self.render_process.start(ffmpeg, args)
 
     def render_finished(self, exit_code, exit_status):
-        success = exit_code == 0 and MOVIE_PATH.exists()
+        success = exit_code == 0 and self.movie_path.exists()
         self.rendering = False
         self.render_process = None
         self.render_button.setText("MAKE MOVIE")
