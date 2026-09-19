@@ -3,10 +3,13 @@ from pathlib import Path
 import struct
 import sys
 
-PROJECT_DIR = Path.home() / "PiCapMovies" / "stage2-test"
+# First CLI argument is FPS; second is the selected project directory.
+# Passing an explicit path prevents the renderer from writing to another movie
+# when the launcher changes projects inside the same Python application.
+FPS = int(sys.argv[1]) if len(sys.argv) > 1 else 10
+PROJECT_DIR = Path(sys.argv[2]) if len(sys.argv) > 2 else Path.home() / "PiCapMovies" / "stage2-test"
 FRAMES_DIR = PROJECT_DIR / "frames"
 OUTPUT = PROJECT_DIR / "movie.avi"
-FPS = int(sys.argv[1]) if len(sys.argv) > 1 else 10
 
 
 def jpeg_size(path: Path):
