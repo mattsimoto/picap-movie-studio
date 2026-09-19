@@ -65,11 +65,17 @@ class PiCapStageFour(QWidget):
         self.shutter_requested.connect(self.capture_photo)
 
         self.picam2 = Picamera2()
-        config = self.picam2.create_preview_configuration(
-            main={"size": (1280, 720), "format": "RGB888"},
-            transform=Transform(hflip=int(CAMERA_FLIP_180), vflip=int(CAMERA_FLIP_180)),
-        )
-        self.picam2.configure(config)
+        try:
+            config = self.picam2.create_preview_configuration(
+                main={"size": (1280, 720), "format": "RGB888"},
+                transform=Transform(hflip=int(CAMERA_FLIP_180), vflip=int(CAMERA_FLIP_180)),
+            )
+            self.picam2.configure(config)
+        except Exception:
+            # A failed initial configuration must not reserve the only camera
+            # until the entire application is restarted.
+            self.picam2.close()
+            raise
 
         self.preview = QPicamera2(self.picam2, width=720, height=215, keep_ar=True)
         self.preview.setMinimumHeight(170)
@@ -209,7 +215,11 @@ class PiCapStageFour(QWidget):
         self.playback_timer.timeout.connect(self.advance_playback)
 
         self.refresh_buttons()
-        self.picam2.start()
+        try:
+            self.picam2.start()
+        except Exception:
+            self.picam2.close()
+            raise
         self.showFullScreen()
         QTimer.singleShot(0, self.enable_hardware_shutter)
         QTimer.singleShot(250, self.refresh_onion_overlay)
