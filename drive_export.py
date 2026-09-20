@@ -49,12 +49,18 @@ def save_drive_folder(folder):
 
 def video_for_project(project_dir):
     project_dir = Path(project_dir)
-    # An MP4 takes precedence if a later PiCap version has produced one.
+    # Prefer the most recently completed render. An old MP4 may coexist with a
+    # newer AVI (or vice versa) after scenes are added to an existing project.
+    candidates = []
     for name in ("movie.mp4", "movie.avi"):
         video = project_dir / name
-        if video.is_file() and video.stat().st_size > 0:
-            return video
-    return None
+        try:
+            stat = video.stat()
+        except OSError:
+            continue
+        if video.is_file() and stat.st_size > 0:
+            candidates.append((stat.st_mtime_ns, video))
+    return max(candidates, key=lambda item: item[0])[1] if candidates else None
 
 
 class DriveExporter(QObject):
