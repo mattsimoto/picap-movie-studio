@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 from pathlib import Path
+from io import BytesIO
 import json
 import re
 import shutil
@@ -28,6 +29,7 @@ from PyQt5.QtWidgets import (
 
 from stage4_mjpeg import PiCapStageFourMJPEG
 from drive_export import DriveExporter, drive_folder, save_drive_folder, video_for_project
+from local_share import LocalMovieServer
 
 BASE_DIR = Path.home() / "PiCapMovies"
 PROJECTS_DIR = BASE_DIR / "projects"
@@ -397,6 +399,86 @@ class GalleryMoviePlayer(QWidget):
             QTimer.singleShot(0, self.display_frame)
 
 
+class PhoneSharePage(QWidget):
+    """Fullscreen, keyboard-free QR transfer page for the selected movie."""
+
+    back_requested = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(4)
+
+        self.heading = QLabel("SCAN TO DOWNLOAD")
+        self.heading.setAlignment(Qt.AlignCenter)
+        self.heading.setFixedHeight(37)
+        self.heading.setStyleSheet("font-size:26px;font-weight:900;color:#14233E;")
+
+        self.qr = QLabel()
+        self.qr.setFixedSize(210, 210)
+        self.qr.setAlignment(Qt.AlignCenter)
+        self.qr.setStyleSheet(
+            "background:white;border:4px solid white;border-radius:10px;"
+        )
+
+        self.movie_name = QLabel()
+        self.movie_name.setAlignment(Qt.AlignCenter)
+        self.movie_name.setStyleSheet("font-size:16px;font-weight:800;color:#14233E;")
+        self.movie_name.setFixedHeight(25)
+
+        self.instructions = QLabel(
+            "Keep PiCap open. Connect your phone to the same Wi-Fi/router. "
+            "The link expires after 20 minutes."
+        )
+        self.instructions.setAlignment(Qt.AlignCenter)
+        self.instructions.setWordWrap(True)
+        self.instructions.setStyleSheet("font-size:13px;font-weight:700;color:#34527B;")
+        self.instructions.setMaximumHeight(42)
+
+        self.url_label = QLabel()
+        self.url_label.setAlignment(Qt.AlignCenter)
+        self.url_label.setWordWrap(True)
+        self.url_label.setStyleSheet("font-size:11px;color:#34527B;")
+        self.url_label.setFixedHeight(28)
+
+        back = QPushButton("BACK TO MY MOVIES")
+        back.setFixedHeight(47)
+        back.setStyleSheet(
+            "QPushButton{background:#2778F2;color:white;border:0;"
+            "border-radius:11px;font-size:17px;font-weight:800;padding:5px;}"
+            "QPushButton:pressed{background:#1555C4;}"
+        )
+        back.clicked.connect(self.back_requested.emit)
+
+        layout.addWidget(self.heading)
+        layout.addWidget(self.qr, 0, Qt.AlignHCenter)
+        layout.addWidget(self.movie_name)
+        layout.addWidget(self.instructions)
+        layout.addWidget(self.url_label)
+        layout.addStretch(1)
+        layout.addWidget(back)
+
+    def show_link(self, project_name, url):
+        # qrcode is optional until the parent installs python3-qrcode and PIL.
+        import qrcode
+
+        code = qrcode.QRCode(border=3, box_size=6)
+        code.add_data(url)
+        code.make(fit=True)
+        image = code.make_image(fill_color="black", back_color="white")
+        out = BytesIO()
+        image.save(out, format="PNG")
+        pixmap = QPixmap()
+        if not pixmap.loadFromData(out.getvalue(), "PNG"):
+            raise RuntimeError("PiCap could not draw this QR code.")
+        self.qr.setPixmap(
+            pixmap.scaled(self.qr.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
+        )
+        self.movie_name.setText(project_name)
+        self.url_label.setText(url)
+
+
 class StudioHome(QWidget):
     def __init__(self):
         super().__init__()
@@ -409,6 +491,7 @@ class StudioHome(QWidget):
         self.title_mode = "new"
         self.rename_target = None
         self.exporter = DriveExporter(self)
+        self.phone_server = LocalMovieServer()
 
         self.stack = QStackedWidget()
         self.home_page = self.build_home_page()
@@ -418,12 +501,15 @@ class StudioHome(QWidget):
         self.error_page = self.build_error_page()
         self.player_page = GalleryMoviePlayer()
         self.player_page.back_requested.connect(self.open_gallery)
+        self.phone_page = PhoneSharePage()
+        self.phone_page.back_requested.connect(self.open_gallery)
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.gallery_page)
         self.stack.addWidget(self.title_page)
         self.stack.addWidget(self.loading_page)
         self.stack.addWidget(self.error_page)
         self.stack.addWidget(self.player_page)
+        self.stack.addWidget(self.phone_page)
         self.exporter.status_changed.connect(self.set_drive_status)
         self.exporter.upload_complete.connect(lambda _project: self.refresh_gallery())
 
@@ -645,9 +731,12 @@ class StudioHome(QWidget):
         export_actions.setSpacing(5)
         self.export_btn = self.small_button("EXPORT TO DRIVE", "#20BD87")
         self.export_btn.clicked.connect(self.export_selected_project)
+        self.phone_btn = self.small_button("PHONE QR", "#FFCA45")
+        self.phone_btn.clicked.connect(self.share_selected_project)
         folder_btn = self.small_button("DRIVE FOLDER")
         folder_btn.clicked.connect(self.edit_drive_folder)
         export_actions.addWidget(self.export_btn, 2)
+        export_actions.addWidget(self.phone_btn, 1)
         export_actions.addWidget(folder_btn, 1)
 
         self.drive_status = QLabel("Drive: Finished movies upload to " + drive_folder())
@@ -719,6 +808,27 @@ class StudioHome(QWidget):
         if project:
             self.exporter.queue_project(project)
 
+    def share_selected_project(self):
+        project = self.selected_project_path()
+        if not project:
+            return
+        video = video_for_project(project)
+        if video is None:
+            QMessageBox.warning(self, "Movie not finished", "Tap MAKE MOVIE before sharing.")
+            return
+        try:
+            # A different unguessable 20-minute link is issued each time.
+            link = self.phone_server.share(video)
+            self.phone_page.show_link(project_meta(project).get("name", project.name), link)
+        except (OSError, ValueError, RuntimeError, ImportError) as exc:
+            QMessageBox.warning(
+                self, "Phone transfer unavailable",
+                f"{exc}\n\nOn the Pi, install QR support with:\n"
+                "sudo apt install -y python3-qrcode python3-pil"
+            )
+            return
+        self.stack.setCurrentWidget(self.phone_page)
+
     def edit_drive_folder(self):
         self.title_mode = "drive"
         self.rename_target = None
@@ -777,6 +887,7 @@ class StudioHome(QWidget):
         self.delete_btn.setEnabled(has)
         self.watch_btn.setEnabled(bool(p and frame_count(p) > 0))
         self.export_btn.setEnabled(bool(p and video_for_project(p)))
+        self.phone_btn.setEnabled(bool(p and video_for_project(p)))
 
     def open_selected_project(self):
         p = self.selected_project_path()
@@ -951,6 +1062,10 @@ class StudioHome(QWidget):
             self.launch_project(self.selected_project)
         else:
             self.open_gallery()
+
+    def closeEvent(self, event):
+        self.phone_server.close()
+        super().closeEvent(event)
 
     def watch_selected_project(self):
         p = self.selected_project_path()
