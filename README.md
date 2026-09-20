@@ -122,3 +122,43 @@ JPEG frames, but uploading that AVI does *not* fix its compatibility. Drive
 export can also upload MP4 files if a future renderer creates one. Confirm the
 uploaded file actually plays before treating it as a finished distributable
 video.
+
+
+## Phone transfer with a QR code (no Google account on the Pi)
+
+From **MY MOVIES**, select a movie that has already been rendered and tap
+**PHONE QR**. PiCap displays a fresh QR code for that movie. Scan it with your
+phone's camera and choose **Download** in the phone browser. The file is copied
+straight from the Raspberry Pi to your phone across your local network.
+You can then use your phone's Share menu to save the file in Google Drive.
+
+One-time Raspberry Pi dependency:
+
+```bash
+sudo apt update
+sudo apt install -y python3-qrcode python3-pil
+```
+
+The Pi can be plugged into the router using Ethernet while your phone uses
+Wi-Fi. Both must be on the **same reachable local network** (guest Wi-Fi and
+client-isolation modes can prevent access). Leave PiCap running until the
+download finishes. The QR code includes the Pi's LAN IPv4 address and port
+`8765`, so the IP address may change if you move to a different network.
+If the Pi's firewall blocks incoming connections, allow TCP port 8765 **on
+your trusted local network only**; never port-forward it on your router.
+
+Each scan link has a strong random token and expires after 20 minutes. PiCap
+only serves the selected completed video file, not the project folders.
+It does not upload to the internet; it runs a temporary, unencrypted
+HTTP download service on your local network. Anyone with the QR code
+and network access during that period can download that movie. To stop
+sharing, exit PiCap. Do not display QR codes for sensitive recordings on
+untrusted networks.
+
+**Current video compatibility:** QR transfer copies the actual exported file
+unchanged. Today's AVI exports can freeze in some external players, even
+though PiCap's internal gallery player displays the original still frames.
+The QR feature does **not** convert AVI to MP4 or repair old files.
+Confirm a downloaded movie plays on your phone before relying on it as a
+finished export. Direct export to Google Drive remains a separate option
+that uses rclone.
