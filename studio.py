@@ -849,14 +849,18 @@ class StudioHome(QWidget):
         pixmap = QPixmap(str(thumb_path))
         if pixmap.isNull():
             return QIcon()
-        scaled = pixmap.scaled(190, 108, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
-        if scaled.width() > 190 or scaled.height() > 108:
-            x = max(0, (scaled.width() - 190) // 2)
-            y = max(0, (scaled.height() - 108) // 2)
-            scaled = scaled.copy(x, y, 190, 108)
+        scaled = pixmap.scaled(158, 89, Qt.KeepAspectRatioByExpanding, Qt.SmoothTransformation)
+        if scaled.width() > 158 or scaled.height() > 89:
+            x = max(0, (scaled.width() - 158) // 2)
+            y = max(0, (scaled.height() - 89) // 2)
+            scaled = scaled.copy(x, y, 158, 89)
         return QIcon(scaled)
 
     def refresh_gallery(self):
+        # Preserve where the user was browsing when returning from filming or
+        # a QR transfer instead of jumping back to the first row each time.
+        current_project = self.selected_project_path()
+        old_scroll = self.project_list.verticalScrollBar().value()
         self.project_list.clear()
         projects = [p for p in PROJECTS_DIR.iterdir() if p.is_dir()]
         projects.sort(key=lambda p: p.stat().st_mtime, reverse=True)
@@ -872,7 +876,12 @@ class StudioHome(QWidget):
             item.setTextAlignment(Qt.AlignHCenter | Qt.AlignTop)
             item.setToolTip(meta.get("name", p.name))
             self.project_list.addItem(item)
+            if current_project is not None and p == current_project:
+                self.project_list.setCurrentItem(item)
 
+        self.project_list.doItemsLayout()
+        scroll_bar = self.project_list.verticalScrollBar()
+        scroll_bar.setValue(min(old_scroll, scroll_bar.maximum()))
         self.gallery_selection_changed()
 
     def selected_project_path(self):
