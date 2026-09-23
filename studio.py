@@ -12,6 +12,7 @@ from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
+    QAbstractItemView,
     QGridLayout,
     QHBoxLayout,
     QLabel,
@@ -28,7 +29,6 @@ from PyQt5.QtWidgets import (
 )
 
 from stage4_mjpeg import PiCapStageFourMJPEG
-from drive_export import DriveExporter, drive_folder, save_drive_folder, video_for_project
 from local_share import LocalMovieServer
 
 BASE_DIR = Path.home() / "PiCapMovies"
@@ -73,6 +73,20 @@ def frame_count(project_dir: Path) -> int:
 
 def movie_path(project_dir: Path) -> Path:
     return project_dir / "movie.avi"
+
+
+def video_for_project(project_dir: Path):
+    """Choose the most recently rendered local movie; keep QR sharing independent."""
+    candidate_files = []
+    for filename in ("movie.avi", "movie.mp4"):
+        movie = project_dir / filename
+        try:
+            stat = movie.stat()
+        except OSError:
+            continue
+        if movie.is_file() and stat.st_size > 0:
+            candidate_files.append((stat.st_mtime_ns, movie))
+    return max(candidate_files, key=lambda pair: pair[0])[1] if candidate_files else None
 
 
 def playback_fps(project_dir: Path) -> int:
@@ -139,19 +153,12 @@ def point_working_link(project_dir: Path):
 
 
 class FilmingWindow(PiCapStageFourMJPEG):
-    """Camera window that returns to gallery and signals a finished render."""
+    """Camera window that returns to the gallery after releasing hardware."""
 
     studio_closed = pyqtSignal()
-    movie_ready = pyqtSignal(object)
 
     def __init__(self, project_dir):
         super().__init__(project_dir=project_dir)
-
-    def render_finished(self, code, status):
-        super().render_finished(code, status)
-        if code == 0 and self.avi_path.is_file() and self.avi_path.stat().st_size > 0:
-            self.movie_ready.emit(self.project_dir)
-            self.status.setText("Movie saved! Sending to Drive...")
 
     def finish_camera_close(self):
         # Base closeEvent schedules this after stopping Qt preview/capture.
@@ -490,7 +497,6 @@ class StudioHome(QWidget):
         self.loading_tick = 0
         self.title_mode = "new"
         self.rename_target = None
-        self.exporter = DriveExporter(self)
         self.phone_server = LocalMovieServer()
 
         self.stack = QStackedWidget()
@@ -510,8 +516,6 @@ class StudioHome(QWidget):
         self.stack.addWidget(self.error_page)
         self.stack.addWidget(self.player_page)
         self.stack.addWidget(self.phone_page)
-        self.exporter.status_changed.connect(self.set_drive_status)
-        self.exporter.upload_complete.connect(lambda _project: self.refresh_gallery())
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 14)
@@ -675,82 +679,109 @@ class StudioHome(QWidget):
         return w
 
     def build_gallery_page(self):
+        """Large, vertically scrollable movie wall with a fixed action rail."""
         w = QWidget()
-        layout = QVBoxLayout(w)
-        layout.setSpacing(5)
+        root = QHBoxLayout(w)
+        root.setContentsMargins(4, 4, 4, 4)
+        root.setSpacing(6)
+
+        browser = QVBoxLayout()
+        browser.setContentsMargins(0, 0, 0, 0)
+        browser.setSpacing(3)
 
         title = QLabel("MY MOVIES")
-        title.setAlignment(Qt.AlignCenter)
-        title.setFixedHeight(34)
-        title.setStyleSheet("font-size:26px;font-weight:900;")
+        title.setFixedHeight(33)
+        title.setStyleSheet("font-size:25px;font-weight:900;")
+        title.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
+        hint = QLabel("Tap a movie, then choose an action →")
+        hint.setFixedHeight(19)
+        hint.setStyleSheet("font-size:12px;color:#34527B;font-weight:700;")
 
         self.project_list = QListWidget()
         self.project_list.setViewMode(QListView.IconMode)
         self.project_list.setMovement(QListView.Static)
         self.project_list.setResizeMode(QListView.Adjust)
+        self.project_list.setFlow(QListView.LeftToRight)
         self.project_list.setWrapping(True)
         self.project_list.setWordWrap(True)
-        self.project_list.setIconSize(QSize(190, 108))
-        self.project_list.setGridSize(QSize(235, 168))
-        self.project_list.setSpacing(5)
+        self.project_list.setUniformItemSizes(True)
+        self.project_list.setIconSize(QSize(158, 89))
+        self.project_list.setGridSize(QSize(181, 139))
+        self.project_list.setSpacing(3)
+        self.project_list.setVerticalScrollMode(QAbstractItemView.ScrollPerPixel)
+        self.project_list.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.project_list.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
         self.project_list.setStyleSheet(
-            "QListWidget{background:#FFFFFF;color:#14233E;border:2px solid #A6C7F4;border-radius:10px;"
-            "font-size:15px;padding:5px;}"
-            "QListWidget::item{background:#E4F0FF;color:#14233E;border:2px solid #B5CFF0;border-radius:10px;"
-            "padding:6px;margin:2px;}"
-            "QListWidget::item:selected{background:#B7D7FF;color:#14233E;border:3px solid #2778F2;}"
+            "QListWidget{background:#FFFFFF;color:#14233E;border:2px solid #A6C7F4;"
+            "border-radius:10px;font-size:13px;padding:2px;}"
+            "QListWidget::item{background:#E4F0FF;color:#14233E;border:2px solid #B5CFF0;"
+            "border-radius:9px;padding:3px;margin:1px;}"
+            "QListWidget::item:selected{background:#B7D7FF;color:#14233E;"
+            "border:3px solid #2778F2;}"
+            "QScrollBar:vertical{background:#E4F0FF;width:18px;margin:2px;"
+            "border-radius:7px;}"
+            "QScrollBar::handle:vertical{background:#2778F2;min-height:36px;border-radius:7px;}"
+            "QScrollBar::add-line:vertical,QScrollBar::sub-line:vertical{height:0px;}"
         )
         self.project_list.itemSelectionChanged.connect(self.gallery_selection_changed)
-        self.project_list.itemDoubleClicked.connect(lambda _item: self.open_selected_project())
+        self.project_list.itemDoubleClicked.connect(
+            lambda _item: self.open_selected_project()
+        )
 
-        primary = QHBoxLayout()
-        primary.setSpacing(5)
-        self.open_btn = self.small_button("OPEN & ADD SCENES", "#2778F2")
+        browser.addWidget(title)
+        browser.addWidget(hint)
+        browser.addWidget(self.project_list, 1)
+
+        rail = QWidget()
+        rail.setObjectName("movieActionRail")
+        rail.setFixedWidth(180)
+        rail.setStyleSheet(
+            "QWidget#movieActionRail{background:#E4F0FF;border-radius:12px;}"
+        )
+        actions = QVBoxLayout(rail)
+        actions.setContentsMargins(5, 5, 5, 5)
+        actions.setSpacing(5)
+
+        self.open_btn = self.small_button("OPEN / ADD", "#2778F2")
+        self.open_btn.setFixedHeight(58)
         self.open_btn.clicked.connect(self.open_selected_project)
+
         self.watch_btn = self.small_button("WATCH", "#20BD87")
+        self.watch_btn.setFixedHeight(49)
         self.watch_btn.clicked.connect(self.watch_selected_project)
-        back_btn = self.small_button("BACK")
-        back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.home_page))
-        primary.addWidget(self.open_btn, 2)
-        primary.addWidget(self.watch_btn, 1)
-        primary.addWidget(back_btn, 1)
 
-        manage = QHBoxLayout()
-        manage.setSpacing(5)
-        self.rename_btn = self.small_button("RENAME")
-        self.rename_btn.clicked.connect(self.rename_selected_project)
-        self.duplicate_btn = self.small_button("DUPLICATE")
-        self.duplicate_btn.clicked.connect(self.duplicate_selected_project)
-        self.delete_btn = self.small_button("DELETE", "#E95370")
-        self.delete_btn.clicked.connect(self.delete_selected_project)
-        manage.addWidget(self.rename_btn, 1)
-        manage.addWidget(self.duplicate_btn, 1)
-        manage.addWidget(self.delete_btn, 1)
-
-        export_actions = QHBoxLayout()
-        export_actions.setSpacing(5)
-        self.export_btn = self.small_button("EXPORT TO DRIVE", "#20BD87")
-        self.export_btn.clicked.connect(self.export_selected_project)
         self.phone_btn = self.small_button("PHONE QR", "#FFCA45")
+        self.phone_btn.setFixedHeight(49)
         self.phone_btn.clicked.connect(self.share_selected_project)
-        folder_btn = self.small_button("DRIVE FOLDER")
-        folder_btn.clicked.connect(self.edit_drive_folder)
-        export_actions.addWidget(self.export_btn, 2)
-        export_actions.addWidget(self.phone_btn, 1)
-        export_actions.addWidget(folder_btn, 1)
 
-        self.drive_status = QLabel("Drive: Finished movies upload to " + drive_folder())
-        self.drive_status.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        self.drive_status.setFixedHeight(23)
-        self.drive_status.setStyleSheet("font-size:12px;font-weight:700;color:#34527B;")
-        self.drive_status.setToolTip("Set up the rclone remote picapdrive once to enable uploads.")
+        self.rename_btn = self.small_button("RENAME")
+        self.rename_btn.setFixedHeight(43)
+        self.rename_btn.clicked.connect(self.rename_selected_project)
 
-        layout.addWidget(title)
-        layout.addWidget(self.project_list, 1)
-        layout.addLayout(primary)
-        layout.addLayout(manage)
-        layout.addLayout(export_actions)
-        layout.addWidget(self.drive_status)
+        self.duplicate_btn = self.small_button("DUPLICATE")
+        self.duplicate_btn.setFixedHeight(43)
+        self.duplicate_btn.clicked.connect(self.duplicate_selected_project)
+
+        self.delete_btn = self.small_button("DELETE", "#E95370")
+        self.delete_btn.setFixedHeight(43)
+        self.delete_btn.clicked.connect(self.delete_selected_project)
+
+        back_btn = self.small_button("BACK")
+        back_btn.setFixedHeight(43)
+        back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.home_page))
+
+        actions.addWidget(self.open_btn)
+        actions.addWidget(self.watch_btn)
+        actions.addWidget(self.phone_btn)
+        actions.addSpacing(4)
+        actions.addWidget(self.rename_btn)
+        actions.addWidget(self.duplicate_btn)
+        actions.addWidget(self.delete_btn)
+        actions.addStretch(1)
+        actions.addWidget(back_btn)
+
+        root.addLayout(browser, 1)
+        root.addWidget(rail)
         return w
 
     def start_new_title(self):
@@ -763,21 +794,12 @@ class StudioHome(QWidget):
         self.title_input.setFocus()
 
     def cancel_title_edit(self):
-        if self.title_mode in ("rename", "drive"):
+        if self.title_mode == "rename":
             self.open_gallery()
         else:
             self.stack.setCurrentWidget(self.home_page)
 
     def commit_title_edit(self):
-        if self.title_mode == "drive":
-            try:
-                save_drive_folder(self.title_input.text())
-            except ValueError:
-                self.title_heading.setText("USE ONE FOLDER NAME")
-                return
-            self.set_drive_status("Drive folder: " + drive_folder())
-            self.open_gallery()
-            return
         name = self.title_input.text().strip()
         if not name:
             name = f"Movie {datetime.now().strftime('%b %d %H-%M')}"
@@ -799,15 +821,6 @@ class StudioHome(QWidget):
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
 
-    def set_drive_status(self, message):
-        self.drive_status.setText(message)
-        self.drive_status.setToolTip(message)
-
-    def export_selected_project(self):
-        project = self.selected_project_path()
-        if project:
-            self.exporter.queue_project(project)
-
     def share_selected_project(self):
         project = self.selected_project_path()
         if not project:
@@ -828,16 +841,6 @@ class StudioHome(QWidget):
             )
             return
         self.stack.setCurrentWidget(self.phone_page)
-
-    def edit_drive_folder(self):
-        self.title_mode = "drive"
-        self.rename_target = None
-        self.title_heading.setText("GOOGLE DRIVE FOLDER")
-        self.title_action_btn.setText("SAVE FOLDER")
-        self.title_input.setText(drive_folder())
-        self.title_input.selectAll()
-        self.stack.setCurrentWidget(self.title_page)
-        self.title_input.setFocus()
 
     def make_thumbnail_icon(self, project_dir: Path):
         thumb_path = project_thumbnail(project_dir)
@@ -886,7 +889,6 @@ class StudioHome(QWidget):
         self.duplicate_btn.setEnabled(has)
         self.delete_btn.setEnabled(has)
         self.watch_btn.setEnabled(bool(p and frame_count(p) > 0))
-        self.export_btn.setEnabled(bool(p and video_for_project(p)))
         self.phone_btn.setEnabled(bool(p and video_for_project(p)))
 
     def open_selected_project(self):
@@ -1025,7 +1027,6 @@ class StudioHome(QWidget):
         try:
             self.filming_window = FilmingWindow(self.selected_project)
             self.filming_window.studio_closed.connect(self.filming_closed)
-            self.filming_window.movie_ready.connect(self.exporter.queue_project)
             self.filming_window.showFullScreen()
             self.filming_window.raise_()
             self.filming_window.activateWindow()
