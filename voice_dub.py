@@ -14,7 +14,7 @@ from pathlib import Path
 
 from PyQt5.QtCore import QElapsedTimer, QProcess, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QImageReader, QPixmap
-from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 
 def capture_device():
@@ -72,6 +72,7 @@ class VoiceDubPage(QWidget):
         self.preview = QLabel()
         self.preview.setAlignment(Qt.AlignCenter)
         self.preview.setMinimumSize(1, 160)
+        self.preview.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         self.preview.setStyleSheet(
             "background:#091526;color:white;border-radius:10px;"
         )
