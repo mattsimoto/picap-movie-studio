@@ -30,6 +30,7 @@ from PyQt5.QtWidgets import (
 
 from stage4_mjpeg import PiCapStageFourMJPEG
 from local_share import LocalMovieServer
+from voice_dub import VoiceDubPage
 
 BASE_DIR = Path.home() / "PiCapMovies"
 PROJECTS_DIR = BASE_DIR / "projects"
@@ -509,6 +510,9 @@ class StudioHome(QWidget):
         self.player_page.back_requested.connect(self.open_gallery)
         self.phone_page = PhoneSharePage()
         self.phone_page.back_requested.connect(self.open_gallery)
+        self.voice_page = VoiceDubPage()
+        self.voice_page.back_requested.connect(self.open_gallery)
+        self.voice_page.movie_saved.connect(lambda _project: self.refresh_gallery())
         self.stack.addWidget(self.home_page)
         self.stack.addWidget(self.gallery_page)
         self.stack.addWidget(self.title_page)
@@ -516,6 +520,7 @@ class StudioHome(QWidget):
         self.stack.addWidget(self.error_page)
         self.stack.addWidget(self.player_page)
         self.stack.addWidget(self.phone_page)
+        self.stack.addWidget(self.voice_page)
 
         root = QVBoxLayout()
         root.setContentsMargins(10, 8, 10, 14)
@@ -751,8 +756,12 @@ class StudioHome(QWidget):
         self.watch_btn.clicked.connect(self.watch_selected_project)
 
         self.phone_btn = self.small_button("PHONE QR", "#FFCA45")
-        self.phone_btn.setFixedHeight(49)
+        self.phone_btn.setFixedHeight(46)
         self.phone_btn.clicked.connect(self.share_selected_project)
+
+        self.voice_btn = self.small_button("ADD VOICES", "#FFCA45")
+        self.voice_btn.setFixedHeight(46)
+        self.voice_btn.clicked.connect(self.add_voices_selected_project)
 
         self.rename_btn = self.small_button("RENAME")
         self.rename_btn.setFixedHeight(43)
@@ -773,6 +782,7 @@ class StudioHome(QWidget):
         actions.addWidget(self.open_btn)
         actions.addWidget(self.watch_btn)
         actions.addWidget(self.phone_btn)
+        actions.addWidget(self.voice_btn)
         actions.addSpacing(4)
         actions.addWidget(self.rename_btn)
         actions.addWidget(self.duplicate_btn)
@@ -820,6 +830,23 @@ class StudioHome(QWidget):
         self.player_page.stop()
         self.refresh_gallery()
         self.stack.setCurrentWidget(self.gallery_page)
+
+    def add_voices_selected_project(self):
+        project = self.selected_project_path()
+        if project is None:
+            return
+        frames = frame_paths(project)
+        if not frames or video_for_project(project) is None:
+            QMessageBox.warning(
+                self, "Finish your movie first",
+                "Film some scenes and tap MAKE MOVIE before adding voices."
+            )
+            return
+        if self.voice_page.open_project(
+            project, frames, playback_fps(project),
+            project_meta(project).get("name", project.name),
+        ):
+            self.stack.setCurrentWidget(self.voice_page)
 
     def share_selected_project(self):
         project = self.selected_project_path()
@@ -899,6 +926,7 @@ class StudioHome(QWidget):
         self.delete_btn.setEnabled(has)
         self.watch_btn.setEnabled(bool(p and frame_count(p) > 0))
         self.phone_btn.setEnabled(bool(p and video_for_project(p)))
+        self.voice_btn.setEnabled(bool(p and frame_count(p) > 0 and video_for_project(p)))
 
     def open_selected_project(self):
         p = self.selected_project_path()
@@ -1074,6 +1102,7 @@ class StudioHome(QWidget):
             self.open_gallery()
 
     def closeEvent(self, event):
+        self.voice_page.close()
         self.phone_server.close()
         super().closeEvent(event)
 
