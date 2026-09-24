@@ -388,7 +388,10 @@ class GalleryMoviePlayer(QWidget):
         if self.voice_path is not None and executable:
             proc = QProcess(self)
             self.sound_proc = proc
-            proc.started.connect(self.start_picture_timer)
+            proc.started.connect(
+                lambda p=proc: self.start_picture_timer()
+                if p is self.sound_proc else None
+            )
             proc.errorOccurred.connect(
                 lambda error, p=proc: self.start_picture_timer()
                 if error == QProcess.FailedToStart and p is self.sound_proc else None
