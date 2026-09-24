@@ -8,7 +8,7 @@ import struct
 import sys
 from datetime import datetime
 
-from PyQt5.QtCore import QSize, QTimer, Qt, pyqtSignal
+from PyQt5.QtCore import QProcess, QSize, QTimer, Qt, pyqtSignal
 from PyQt5.QtGui import QIcon, QImageReader, QPixmap
 from PyQt5.QtWidgets import (
     QApplication,
@@ -282,6 +282,8 @@ class GalleryMoviePlayer(QWidget):
         self.position = 0
         self.fps = 10
         self.finished = False
+        self.voice_path = None
+        self.sound_proc = None
         self.timer = QTimer(self)
         self.timer.timeout.connect(self.next_frame)
 
@@ -337,6 +339,17 @@ class GalleryMoviePlayer(QWidget):
         self.position = 0
         self.finished = False
         self.fps = playback_fps(project_dir)
+        self.voice_path = None
+        marker = project_dir / "narration.json"
+        wav_file = project_dir / "narration.wav"
+        try:
+            settings = json.loads(marker.read_text(encoding="utf-8"))
+            if (settings.get("frames") == len(self.frames)
+                    and settings.get("fps") == self.fps
+                    and wav_file.is_file() and wav_file.stat().st_size > 1000):
+                self.voice_path = wav_file
+        except (OSError, ValueError, TypeError, AttributeError):
+            pass
         self.title_label.setText(project_meta(project_dir).get("name", project_dir.name))
         self.display_frame()
         return True
@@ -356,20 +369,45 @@ class GalleryMoviePlayer(QWidget):
             self.screen.setText("This picture could not be opened.")
         else:
             self.screen.setPixmap(QPixmap.fromImage(image))
-        self.frame_label.setText(f"PICTURE {self.position + 1} / {len(self.frames)}  •  {self.fps} FPS")
+        sound_label = "  •  VOICES" if self.voice_path else ""
+        self.frame_label.setText(
+            f"PICTURE {self.position + 1} / {len(self.frames)}  •  {self.fps} FPS{sound_label}"
+        )
 
     def start(self):
         if not self.frames:
             return
-        if self.finished:
+        # ALSA 'aplay' plays from the beginning. Restart pictures as well so a
+        # resumed movie with voices does not play out-of-sync narration.
+        if self.finished or (self.voice_path is not None and self.position > 0):
             self.position = 0
             self.finished = False
             self.display_frame()
-        self.timer.start(max(1, round(1000 / self.fps)))
         self.play_btn.setText("PAUSE")
+        executable = shutil.which("aplay")
+        if self.voice_path is not None and executable:
+            proc = QProcess(self)
+            self.sound_proc = proc
+            proc.started.connect(self.start_picture_timer)
+            proc.errorOccurred.connect(
+                lambda error, p=proc: self.start_picture_timer()
+                if error == QProcess.FailedToStart and p is self.sound_proc else None
+            )
+            proc.start(executable, ["-q", str(self.voice_path)])
+        else:
+            self.start_picture_timer()
+
+    def start_picture_timer(self):
+        if self.frames and not self.timer.isActive():
+            self.timer.start(max(1, round(1000 / self.fps)))
 
     def stop(self):
         self.timer.stop()
+        if self.sound_proc is not None:
+            proc = self.sound_proc
+            self.sound_proc = None
+            proc.kill()
+            proc.deleteLater()
         self.play_btn.setText("PLAY")
 
     def toggle_play(self):
