@@ -119,3 +119,43 @@ though PiCap's internal gallery player displays the original still frames.
 The QR feature does **not** convert AVI to MP4 or repair old files.
 Confirm a downloaded movie plays on your phone before relying on it as a
 finished export.
+
+
+## Add voices with a USB microphone
+
+PiCap's **MY MOVIES → ADD VOICES** workflow records one continuous narration
+take over an existing completed movie. Plug a USB microphone into the Pi and
+install the audio tools and MP4 encoder:
+
+```bash
+sudo apt update
+sudo apt install -y alsa-utils ffmpeg
+```
+
+Tap **ADD VOICES** for a movie after making it. Tap **RECORD VOICES** and speak
+as the still pictures play. Recording automatically finishes when the full
+movie has played (rounded to the next whole second to let ALSA finish writing
+WAV). The take is stored as `narration.wav` alongside the movie's JPG frames.
+Tap **PLAY TAKE** to watch the pictures while hearing the voice track through
+the Pi's configured speaker/headphones; the USB mic alone does not provide
+audio output. Tap **RECORD VOICES** again to redo the whole track. Cancelling
+a retake preserves the previous recording.
+
+Tap **SAVE MP4** to render a separate 640×360 H.264/AAC `movie.mp4` with
+the voices embedded. Rendering runs in a separate FFmpeg process; allow time
+on the Pi 3B+. This step leaves the original JPEG frames, narration WAV and
+old AVI unchanged. A failed export does not replace an existing MP4.
+Once saved, use **MY MOVIES → PHONE QR** to download the latest completed
+movie; PiCap's **WATCH** screen also plays an up-to-date saved narration track.
+
+If the capture device is not found, run `arecord -l` and verify that the USB
+mic is listed. PiCap normally selects an ALSA capture device automatically.
+To override unusual hardware, set `PICAP_MIC_DEVICE` (for example,
+`plughw:1,0`) in the PiCap launcher environment before starting the app.
+Confirm the Pi's playback audio output works when testing PLAY TAKE.
+
+This first version records one continuous voice track; individual dialogue
+clips, separate sound-effects tracks and background music can be added later.
+If frames or movie FPS are changed after a take, record a fresh take and
+SAVE MP4 again before sharing. Never delete local projects until the MP4
+plays and the phone transfer has been verified.
