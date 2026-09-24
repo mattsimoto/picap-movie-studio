@@ -6,6 +6,7 @@ responsive on Raspberry Pi 3B+. All audio and images stay in the movie project.
 import json
 import math
 import os
+import re
 import shutil
 import tempfile
 import wave
@@ -14,6 +15,32 @@ from pathlib import Path
 from PyQt5.QtCore import QElapsedTimer, QProcess, Qt, QTimer, pyqtSignal
 from PyQt5.QtGui import QImageReader, QPixmap
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+
+
+def capture_device():
+    """Use an attached ALSA capture device, preferring USB over onboard audio.
+
+    PICAP_MIC_DEVICE overrides detection for unusual microphones.
+    ALSA's plughw device supports conversion to the WAV recording format.
+    """
+    override = os.environ.get("PICAP_MIC_DEVICE", "").strip()
+    if override:
+        return override
+    try:
+        pcm = Path("/proc/asound/pcm").read_text(encoding="utf-8")
+        choices = []
+        for line in pcm.splitlines():
+            match = re.match(r"\\s*(\\d+)-(\\d+):\\s*(.*)", line)
+            if match and re.search(r"capture\\s+\\d+", line, re.IGNORECASE):
+                card, device, description = match.groups()
+                choices.append(("usb" not in description.lower(), card, device))
+        if choices:
+            choices.sort()
+            _, card, device = choices[0]
+            return f"plughw:{int(card)},{int(device)}"
+    except (OSError, UnicodeError):
+        pass
+    return "default"
 
 
 class VoiceDubPage(QWidget):
@@ -191,6 +218,10 @@ class VoiceDubPage(QWidget):
         self.show_frame(0)
         self.elapsed.start()
         self.preview_timer.start()
+        if self.recorder is not None:
+            self.status.setText("RECORDING VOICES... Speak as the pictures play.")
+        elif self.audio_player is not None:
+            self.status.setText("Playing your voice take...")
 
     def tick_preview(self):
         if not self.frames:
@@ -229,7 +260,7 @@ class VoiceDubPage(QWidget):
         self.status.setText("Starting USB microphone...")
         self.refresh_buttons()
         seconds = max(1, math.ceil(len(self.frames) / self.fps))
-        device = os.environ.get("PICAP_MIC_DEVICE", "default")
+        device = capture_device()
         proc.start(
             executable,
             [
@@ -265,7 +296,7 @@ class VoiceDubPage(QWidget):
             temp_audio.unlink(missing_ok=True)
             detail = raw.strip().splitlines()
             self.status.setText(
-                "Mic could not record. Try arecord -l to find the USB device. "
+                "Mic could not record. Run arecord -l to check the USB mic. "
                 + (detail[-1][:65] if detail else "")
             )
         else:
