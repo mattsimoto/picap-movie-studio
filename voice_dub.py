@@ -17,15 +17,8 @@ from PyQt5.QtGui import QImageReader, QPixmap
 from PyQt5.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSizePolicy, QVBoxLayout, QWidget
 
 
-def capture_device():
-    """Use an attached ALSA capture device, preferring USB over onboard audio.
-
-    PICAP_MIC_DEVICE overrides detection for unusual microphones.
-    ALSA's plughw device supports conversion to the WAV recording format.
-    """
-    override = os.environ.get("PICAP_MIC_DEVICE", "").strip()
-    if override:
-        return override
+def detected_capture_device():
+    """Return the preferred hardware ALSA capture device, if one is present."""
     try:
         pcm = Path("/proc/asound/pcm").read_text(encoding="utf-8")
         choices = []
@@ -40,7 +33,36 @@ def capture_device():
             return f"plughw:{int(card)},{int(device)}"
     except (OSError, UnicodeError):
         pass
-    return "default"
+    return None
+
+
+def capture_attempts():
+    """Try the desktop/default source first, then direct USB ALSA fallbacks."""
+    override = os.environ.get("PICAP_MIC_DEVICE", "").strip()
+    hardware = detected_capture_device()
+    attempts = []
+    if override:
+        attempts.extend([
+            (override, 48000, 1),
+            (override, 44100, 1),
+            (override, 48000, 2),
+        ])
+    else:
+        attempts.extend([
+            ("default", 48000, 1),
+            ("default", 44100, 1),
+        ])
+        if hardware and hardware != "default":
+            attempts.extend([
+                (hardware, 48000, 1),
+                (hardware, 44100, 1),
+                (hardware, 48000, 2),
+            ])
+    unique = []
+    for attempt in attempts:
+        if attempt not in unique:
+            unique.append(attempt)
+    return unique or [("default", 48000, 1)]
 
 
 class VoiceDubPage(QWidget):
@@ -64,6 +86,11 @@ class VoiceDubPage(QWidget):
         self.canceling = False
         self.last_error = ""
         self.recorded_frame_count = 0
+        self.record_attempts = []
+        self.record_attempt_index = 0
+        self.record_seconds = 0
+        self.record_temp = None
+        self.preview_started_for_take = False
 
         self.title = QLabel("ADD VOICES")
         self.title.setFixedHeight(28)
@@ -237,38 +264,69 @@ class VoiceDubPage(QWidget):
     def record_take(self):
         if self.busy() or not self.frames:
             return
-        executable = shutil.which("arecord")
-        if not executable:
+        if not shutil.which("arecord"):
             self.status.setText("Microphone recorder missing: install alsa-utils.")
             return
         self.canceling = False
-        temp_audio = self.project / "narration.partial.wav"
+        self.preview_started_for_take = False
+        self.record_temp = self.project / "narration.partial.wav"
         try:
-            temp_audio.unlink(missing_ok=True)
+            self.record_temp.unlink(missing_ok=True)
         except OSError as exc:
             self.status.setText(f"Cannot prepare microphone recording: {exc}")
             return
-        self.recorder = QProcess(self)
-        proc = self.recorder
+        self.record_attempts = capture_attempts()
+        self.record_attempt_index = 0
+        self.record_seconds = max(1, math.ceil(len(self.frames) / self.fps))
+        self.start_record_attempt()
+
+    def start_record_attempt(self):
+        if self.canceling or self.record_attempt_index >= len(self.record_attempts):
+            self.recorder = None
+            self.preview_timer.stop()
+            self.show_frame(0)
+            self.status.setText(
+                "Mic could not record with the available audio settings. "
+                "Run arecord -l and send me the output."
+            )
+            self.refresh_buttons()
+            return
+
+        device, rate, channels = self.record_attempts[self.record_attempt_index]
+        self.record_attempt_index += 1
+        try:
+            self.record_temp.unlink(missing_ok=True)
+        except OSError:
+            pass
+
+        proc = QProcess(self)
+        self.recorder = proc
         proc.setProcessChannelMode(QProcess.MergedChannels)
-        proc.started.connect(self.start_preview)
         proc.finished.connect(
             lambda code, status, p=proc: self.record_finished(p, code, status)
         )
         proc.errorOccurred.connect(
             lambda error, p=proc: self.record_error(p, error)
         )
-        self.status.setText("Starting USB microphone...")
+        self.status.setText(
+            f"Starting USB mic ({device}, {rate // 1000} kHz, "
+            f"{'mono' if channels == 1 else 'stereo'})..."
+        )
         self.refresh_buttons()
-        seconds = max(1, math.ceil(len(self.frames) / self.fps))
-        device = capture_device()
         proc.start(
-            executable,
+            shutil.which("arecord"),
             [
-                "-q", "-D", device, "-t", "wav", "-f", "S16_LE", "-r", "44100",
-                "-c", "1", "-d", str(seconds), str(temp_audio),
+                "-q", "-D", device, "-t", "wav", "-f", "S16_LE",
+                "-r", str(rate), "-c", str(channels),
+                "-d", str(self.record_seconds), str(self.record_temp),
             ],
         )
+        QTimer.singleShot(300, lambda p=proc: self.confirm_recording_started(p))
+
+    def confirm_recording_started(self, proc):
+        if proc is self.recorder and proc.state() == QProcess.Running:
+            self.preview_started_for_take = True
+            self.start_preview()
 
     def cancel_take(self):
         if self.recorder is None:
@@ -284,23 +342,34 @@ class VoiceDubPage(QWidget):
     def record_finished(self, proc, code, _status):
         if proc is not self.recorder:
             return
-        self.preview_timer.stop()
-        self.recorder = None
-        self.show_frame(0)
         raw = bytes(proc.readAllStandardOutput()).decode("utf-8", errors="replace")
+        self.recorder = None
         proc.deleteLater()
-        temp_audio = self.project / "narration.partial.wav"
+        temp_audio = self.record_temp or (self.project / "narration.partial.wav")
         if self.canceling:
+            self.preview_timer.stop()
+            self.show_frame(0)
             temp_audio.unlink(missing_ok=True)
             self.status.setText("Take cancelled. Previous recording kept.")
-        elif code != 0 or not temp_audio.is_file():
+        elif code != 0 or not temp_audio.is_file() or temp_audio.stat().st_size <= 1000:
             temp_audio.unlink(missing_ok=True)
+            if self.preview_started_for_take:
+                self.preview_timer.stop()
+                self.show_frame(0)
+                self.preview_started_for_take = False
             detail = raw.strip().splitlines()
+            if self.record_attempt_index < len(self.record_attempts):
+                last = detail[-1][:60] if detail else "audio setting rejected"
+                self.status.setText(f"Trying another mic setting... {last}")
+                QTimer.singleShot(150, self.start_record_attempt)
+                return
             self.status.setText(
-                "Mic could not record. Run arecord -l to check the USB mic. "
-                + (detail[-1][:65] if detail else "")
+                "Mic found, but recording failed. Run arecord -l and send me the output. "
+                + (detail[-1][:60] if detail else "")
             )
         else:
+            self.preview_timer.stop()
+            self.show_frame(0)
             try:
                 with wave.open(str(temp_audio), "rb") as audio:
                     duration = audio.getnframes() / audio.getframerate()
