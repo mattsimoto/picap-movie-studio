@@ -789,47 +789,58 @@ class StudioHome(QWidget):
         actions.setSpacing(5)
 
         self.open_btn = self.small_button("OPEN / ADD", "#2778F2")
-        self.open_btn.setFixedHeight(58)
+        self.open_btn.setFixedHeight(52)
         self.open_btn.clicked.connect(self.open_selected_project)
 
         self.watch_btn = self.small_button("WATCH", "#20BD87")
-        self.watch_btn.setFixedHeight(49)
+        self.watch_btn.setFixedHeight(43)
         self.watch_btn.clicked.connect(self.watch_selected_project)
 
-        self.phone_btn = self.small_button("PHONE QR", "#FFCA45")
-        self.phone_btn.setFixedHeight(46)
-        self.phone_btn.clicked.connect(self.share_selected_project)
-
+        # ADD VOICES is intentionally placed high in the rail so it remains
+        # visible on the 800x480 touchscreen even when the desktop reserves a
+        # few pixels for its panel.
         self.voice_btn = self.small_button("ADD VOICES", "#FFCA45")
-        self.voice_btn.setFixedHeight(46)
+        self.voice_btn.setFixedHeight(52)
         self.voice_btn.clicked.connect(self.add_voices_selected_project)
 
+        self.phone_btn = self.small_button("PHONE QR", "#FFCA45")
+        self.phone_btn.setFixedHeight(43)
+        self.phone_btn.clicked.connect(self.share_selected_project)
+
         self.rename_btn = self.small_button("RENAME")
-        self.rename_btn.setFixedHeight(43)
+        self.rename_btn.setFixedHeight(38)
         self.rename_btn.clicked.connect(self.rename_selected_project)
 
         self.duplicate_btn = self.small_button("DUPLICATE")
-        self.duplicate_btn.setFixedHeight(43)
+        self.duplicate_btn.setFixedHeight(38)
         self.duplicate_btn.clicked.connect(self.duplicate_selected_project)
 
         self.delete_btn = self.small_button("DELETE", "#E95370")
-        self.delete_btn.setFixedHeight(43)
+        self.delete_btn.setFixedHeight(38)
         self.delete_btn.clicked.connect(self.delete_selected_project)
 
         back_btn = self.small_button("BACK")
-        back_btn.setFixedHeight(43)
+        back_btn.setFixedHeight(38)
         back_btn.clicked.connect(lambda: self.stack.setCurrentWidget(self.home_page))
+
+        manage_row = QHBoxLayout()
+        manage_row.setSpacing(4)
+        manage_row.addWidget(self.rename_btn, 1)
+        manage_row.addWidget(self.duplicate_btn, 1)
+
+        bottom_row = QHBoxLayout()
+        bottom_row.setSpacing(4)
+        bottom_row.addWidget(self.delete_btn, 1)
+        bottom_row.addWidget(back_btn, 1)
 
         actions.addWidget(self.open_btn)
         actions.addWidget(self.watch_btn)
-        actions.addWidget(self.phone_btn)
         actions.addWidget(self.voice_btn)
-        actions.addSpacing(4)
-        actions.addWidget(self.rename_btn)
-        actions.addWidget(self.duplicate_btn)
-        actions.addWidget(self.delete_btn)
+        actions.addWidget(self.phone_btn)
+        actions.addSpacing(3)
+        actions.addLayout(manage_row)
+        actions.addLayout(bottom_row)
         actions.addStretch(1)
-        actions.addWidget(back_btn)
 
         root.addLayout(browser, 1)
         root.addWidget(rail)
