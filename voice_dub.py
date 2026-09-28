@@ -23,8 +23,8 @@ def detected_capture_device():
         pcm = Path("/proc/asound/pcm").read_text(encoding="utf-8")
         choices = []
         for line in pcm.splitlines():
-            match = re.match(r"\\s*(\\d+)-(\\d+):\\s*(.*)", line)
-            if match and re.search(r"capture\\s+\\d+", line, re.IGNORECASE):
+            match = re.match(r"\s*(\d+)-(\d+):\s*(.*)", line)
+            if match and re.search(r"capture\s+\d+", line, re.IGNORECASE):
                 card, device, description = match.groups()
                 choices.append(("usb" not in description.lower(), card, device))
         if choices:
@@ -48,16 +48,20 @@ def capture_attempts():
             (override, 48000, 2),
         ])
     else:
-        attempts.extend([
-            ("default", 48000, 1),
-            ("default", 44100, 1),
-        ])
+        # Prefer a real USB/hardware capture endpoint when one is present.
+        # The desktop may show a mic while ALSA's generic "default" route still
+        # rejects recording parameters.
         if hardware and hardware != "default":
             attempts.extend([
                 (hardware, 48000, 1),
                 (hardware, 44100, 1),
                 (hardware, 48000, 2),
+                (hardware, 44100, 2),
             ])
+        attempts.extend([
+            ("default", 48000, 1),
+            ("default", 44100, 1),
+        ])
     unique = []
     for attempt in attempts:
         if attempt not in unique:
