@@ -220,8 +220,15 @@ class PiCapStageFour(QWidget):
         # Target the rail only; do not override its colorful child buttons.
         controls.setStyleSheet("QWidget#controlRail { background: #E4F0FF; border-radius: 12px; }")
         controls_column = QVBoxLayout(controls)
-        controls_column.setContentsMargins(5, 5, 5, 5)
+        controls_column.setContentsMargins(5, 7, 5, 10)
         controls_column.setSpacing(5)
+
+        # Keep EXIT at the top of the side rail. The bottom edge of this
+        # 800x480 touchscreen misses some touches near the bezel.
+        self.exit_button.setFixedHeight(52)
+        controls_column.addWidget(self.exit_button)
+        controls_column.addSpacing(2)
+
         controls_column.addWidget(self.capture_button)
         controls_column.addLayout(button_row)
         controls_column.addLayout(tools_row)
@@ -229,7 +236,6 @@ class PiCapStageFour(QWidget):
         controls_column.addLayout(self.focus_layout)
         controls_column.addWidget(self.render_button)
         controls_column.addStretch(1)
-        controls_column.addWidget(self.exit_button)
 
         layout = QHBoxLayout()
         layout.setContentsMargins(4, 4, 4, 4)
