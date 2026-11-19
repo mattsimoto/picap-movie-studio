@@ -130,8 +130,8 @@ class VoiceDubPage(QWidget):
             "QWidget#voiceRail{background:#E4F0FF;border-radius:11px;}"
         )
         buttons = QVBoxLayout(rail)
-        buttons.setContentsMargins(5, 6, 5, 6)
-        buttons.setSpacing(7)
+        buttons.setContentsMargins(5, 6, 5, 12)
+        buttons.setSpacing(6)
 
         def action(label, color, ink="#14233E", height=51):
             button = QPushButton(label)
@@ -144,23 +144,27 @@ class VoiceDubPage(QWidget):
             )
             return button
 
-        self.record_button = action("RECORD VOICES", "#FFCA45", height=69)
-        self.record_button.clicked.connect(self.record_take)
-        self.listen_button = action("PLAY TAKE", "#B7DEFF")
-        self.listen_button.clicked.connect(self.play_take)
-        self.save_button = action("SAVE MP4", "#20BD87", height=61)
-        self.save_button.clicked.connect(self.save_mp4)
-        self.cancel_button = action("CANCEL TAKE", "#E95370", "#FFFFFF")
-        self.cancel_button.clicked.connect(self.cancel_take)
-        self.back_button = action("BACK TO MOVIES", "#2778F2", "#FFFFFF")
-        self.back_button.clicked.connect(self.go_back)
+        self.back_button = action("BACK TO MOVIES", "#2778F2", "#FFFFFF", height=48)
+        self.back_button.clicked.connect(self.exit_voice_editor)
 
+        self.record_button = action("RECORD VOICES", "#FFCA45", height=64)
+        self.record_button.clicked.connect(self.record_take)
+        self.listen_button = action("PLAY TAKE", "#B7DEFF", height=47)
+        self.listen_button.clicked.connect(self.play_take)
+        self.save_button = action("SAVE MP4", "#20BD87", height=55)
+        self.save_button.clicked.connect(self.save_mp4)
+        self.cancel_button = action("CANCEL TAKE", "#E95370", "#FFFFFF", height=47)
+        self.cancel_button.clicked.connect(self.cancel_take)
+
+        # Keep navigation at the top of the reliable touch area instead of the
+        # bottom bezel, where this 800x480 screen misses some touches.
+        buttons.addWidget(self.back_button)
+        buttons.addSpacing(2)
         buttons.addWidget(self.record_button)
         buttons.addWidget(self.listen_button)
         buttons.addWidget(self.save_button)
         buttons.addWidget(self.cancel_button)
         buttons.addStretch(1)
-        buttons.addWidget(self.back_button)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(5, 4, 5, 4)
@@ -218,7 +222,9 @@ class VoiceDubPage(QWidget):
         self.listen_button.setEnabled(self.voice_is_current() and not occupied)
         self.save_button.setEnabled(self.voice_is_current() and not occupied)
         self.cancel_button.setEnabled(self.recorder is not None)
-        self.back_button.setEnabled(not occupied)
+        # BACK remains usable even during recording/playback/rendering; its
+        # handler stops the active subprocess safely before leaving.
+        self.back_button.setEnabled(True)
 
     def show_frame(self, position):
         if not self.frames:
@@ -534,11 +540,49 @@ class VoiceDubPage(QWidget):
             )
         self.refresh_buttons()
 
-    def go_back(self):
-        if self.busy():
-            return
+    def exit_voice_editor(self):
+        """Stop the current voice operation safely, then return to My Movies."""
         self.preview_timer.stop()
+
+        if self.recorder is not None:
+            self.canceling = True
+            proc = self.recorder
+            self.recorder = None
+            proc.kill()
+            proc.waitForFinished(750)
+            proc.deleteLater()
+            if self.record_temp is not None:
+                try:
+                    self.record_temp.unlink(missing_ok=True)
+                except OSError:
+                    pass
+
+        if self.audio_player is not None:
+            proc = self.audio_player
+            self.audio_player = None
+            proc.kill()
+            proc.waitForFinished(750)
+            proc.deleteLater()
+
+        if self.encoder is not None:
+            proc = self.encoder
+            self.encoder = None
+            proc.kill()
+            proc.waitForFinished(1000)
+            proc.deleteLater()
+            if self.project is not None:
+                try:
+                    (self.project / "movie.partial.mp4").unlink(missing_ok=True)
+                except OSError:
+                    pass
+            if self.render_staging is not None:
+                self.render_staging.cleanup()
+                self.render_staging = None
+
         self.back_requested.emit()
+
+    def go_back(self):
+        self.exit_voice_editor()
 
     def close(self):
         self.preview_timer.stop()
