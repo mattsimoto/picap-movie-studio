@@ -26,6 +26,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.focus_started_at = 0.0
         self.latest_camera_metadata = {}
         self.latest_metadata_time = 0.0
+        self.exit_after_render = False
         # Do not call synchronous capture_metadata() from the Qt GUI thread.
         # Picamera2's preview callback supplies metadata without waiting for a frame.
         self.picam2.post_callback = self.cache_camera_metadata
@@ -175,6 +176,21 @@ class PiCapStageFourMJPEG(PiCapStageFour):
                 self.autofocus_button.setEnabled(not busy)
             self.focus_lock_button.setEnabled(not busy)
 
+    def begin_shutdown(self):
+        """Exit capture mode, automatically refreshing the movie if frames changed."""
+        if self.shutting_down or self.rendering:
+            return
+        needs_render = (
+            self.frame_count > 0
+            and (self.project_modified or not self.avi_path.exists())
+        )
+        if needs_render and RENDERER.exists():
+            self.exit_after_render = True
+            self.status.setText("Saving movie before exit...")
+            self.render_movie()
+            return
+        super().begin_shutdown()
+
     def render_movie(self):
         if self.frame_count <= 0 or self.rendering or self.playing or self.shutting_down:
             return
@@ -211,6 +227,7 @@ class PiCapStageFourMJPEG(PiCapStageFour):
 
         if success:
             size_mb = self.avi_path.stat().st_size / (1024 * 1024)
+            self.project_modified = False
             self.status.setText(f"Movie saved! {size_mb:.1f} MB")
         else:
             last_line = details.strip().splitlines()[-1] if details.strip() else "Movie failed"
@@ -218,7 +235,11 @@ class PiCapStageFourMJPEG(PiCapStageFour):
 
         self.refresh_onion_overlay()
         self.refresh_buttons()
-        QTimer.singleShot(3000, self.reset_status)
+        if self.exit_after_render:
+            self.exit_after_render = False
+            QTimer.singleShot(120, super().begin_shutdown)
+        else:
+            QTimer.singleShot(3000, self.reset_status)
 
     def render_error(self, _error):
         if not self.rendering:
@@ -229,7 +250,11 @@ class PiCapStageFourMJPEG(PiCapStageFour):
         self.status.setText("Movie renderer error")
         self.refresh_onion_overlay()
         self.refresh_buttons()
-        QTimer.singleShot(3000, self.reset_status)
+        if self.exit_after_render:
+            self.exit_after_render = False
+            QTimer.singleShot(120, super().begin_shutdown)
+        else:
+            QTimer.singleShot(3000, self.reset_status)
 
     def closeEvent(self, event):
         self.focus_timer.stop()
