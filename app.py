@@ -223,19 +223,22 @@ class PiCapStageFour(QWidget):
         controls_column.setContentsMargins(5, 7, 5, 10)
         controls_column.setSpacing(5)
 
-        # Keep EXIT at the top of the side rail. The bottom edge of this
-        # 800x480 touchscreen misses some touches near the bezel.
-        self.exit_button.setFixedHeight(52)
-        controls_column.addWidget(self.exit_button)
-        controls_column.addSpacing(2)
-
         controls_column.addWidget(self.capture_button)
         controls_column.addLayout(button_row)
         controls_column.addLayout(tools_row)
         controls_column.addWidget(self.fps_button)
         controls_column.addLayout(self.focus_layout)
-        controls_column.addWidget(self.render_button)
+
+        # Movie rendering is automatic when leaving capture mode. Put EXIT in
+        # the former MAKE MOVIE position: low in the rail, but safely above the
+        # unreliable bottom bezel.
+        self.exit_button.setFixedHeight(54)
+        controls_column.addWidget(self.exit_button)
         controls_column.addStretch(1)
+
+        # Keep the renderer button object for existing render/status code, but
+        # do not expose a separate MAKE MOVIE action in the capture UI.
+        self.render_button.hide()
 
         layout = QHBoxLayout()
         layout.setContentsMargins(4, 4, 4, 4)
