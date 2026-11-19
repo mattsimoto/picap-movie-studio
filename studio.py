@@ -788,7 +788,7 @@ class StudioHome(QWidget):
         actions.setContentsMargins(5, 5, 5, 5)
         actions.setSpacing(5)
 
-        self.open_btn = self.small_button("OPEN / ADD", "#2778F2")
+        self.open_btn = self.small_button("OPEN MOVIE", "#2778F2")
         self.open_btn.setFixedHeight(52)
         self.open_btn.clicked.connect(self.open_selected_project)
 
@@ -891,7 +891,7 @@ class StudioHome(QWidget):
         if not frames or video_for_project(project) is None:
             QMessageBox.warning(
                 self, "Finish your movie first",
-                "Film some scenes and tap MAKE MOVIE before adding voices."
+                "Add at least one picture, then exit capture mode so PiCap can save the movie."
             )
             return
         if self.voice_page.open_project(
@@ -906,7 +906,7 @@ class StudioHome(QWidget):
             return
         video = video_for_project(project)
         if video is None:
-            QMessageBox.warning(self, "Movie not finished", "Tap MAKE MOVIE before sharing.")
+            QMessageBox.warning(self, "Movie not ready", "Exit capture mode after taking pictures so PiCap can save the movie first.")
             return
         try:
             # A different unguessable 20-minute link is issued each time.
