@@ -54,6 +54,7 @@ class PiCapStageFour(QWidget):
         self.pending_filename = None
         self.pending_frame_number = None
         self.frame_count = self.find_last_frame_number()
+        self.project_modified = False
         self.shutting_down = False
         self.onion_enabled = False
         self.onion_level_index = 1
@@ -330,6 +331,7 @@ class PiCapStageFour(QWidget):
             self.picam2.wait(job)
             if self.pending_frame_number is not None:
                 self.frame_count = self.pending_frame_number
+                self.project_modified = True
                 self.update_frame_label()
                 self.status.setText(f"Saved frame {self.frame_count}")
                 self.refresh_onion_overlay()
@@ -350,6 +352,7 @@ class PiCapStageFour(QWidget):
                 filename.unlink()
                 deleted_number = self.frame_count
                 self.frame_count -= 1
+                self.project_modified = True
                 self.update_frame_label()
                 self.status.setText(f"Deleted frame {deleted_number}")
                 self.refresh_onion_overlay()
